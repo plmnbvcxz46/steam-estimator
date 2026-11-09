@@ -30,5 +30,5 @@ figures/*
 .idea/
 .DS_Store
 
-# 本地代理说明，不上传
-AGENTS.md
+# 个人偏好，只在本地使用，不上传
+CLAUDE.md
