@@ -4,6 +4,7 @@ import csv
 import logging
 import sqlite3
 from datetime import UTC, datetime
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -102,3 +103,34 @@ def import_ars(csv_path, db_path):
 
     logger.info("raw_ars_players_2018 写入 %d 行", len(records))
     return len(records)
+
+
+# 路径从本文件位置推出来，在哪个目录运行都能找到
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+SOURCE_CSV = (
+    PROJECT_ROOT
+    / "data"
+    / "source"
+    / "games_achievements_players_2018-07-01_ars_original.csv"
+)
+DB_PATH = PROJECT_ROOT / "data" / "steam.db"
+LOG_PATH = PROJECT_ROOT / "data" / "logs" / "ars_import.log"
+
+
+def main():
+    """命令行入口：配置日志，然后导入。"""
+    LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s",
+        # 同时输出到屏幕和日志文件：屏幕上当场看，文件留作记录
+        handlers=[
+            logging.StreamHandler(),
+            logging.FileHandler(LOG_PATH, encoding="utf-8"),
+        ],
+    )
+    import_ars(SOURCE_CSV, DB_PATH)
+
+
+if __name__ == "__main__":
+    main()
