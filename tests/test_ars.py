@@ -1,4 +1,6 @@
-from crawler.ars import parse_players, read_rows
+import sqlite3
+
+from crawler.ars import import_ars, parse_players, read_rows
 
 HEADER = "Title, Players Estimate ,Steam App ID"
 
@@ -24,3 +26,18 @@ def test_read_rows_real_file():
     rows = read_rows(path)
     assert len(rows) == 13275
     assert rows[0] == (440, "Team Fortress 2", 50191347)
+
+
+def test_import_ars_is_rerunnable(tmp_path):
+    # 重跑结果不变：导入两遍，表里仍然只有 1 行
+    csv_path = tmp_path / "ars.csv"
+    csv_path.write_text(HEADER + '\nTeam Fortress 2," 50,191,347 ",440\n', encoding="utf-8")
+    db_path = tmp_path / "test.db"
+
+    import_ars(csv_path, db_path)
+    import_ars(csv_path, db_path)
+
+    conn = sqlite3.connect(db_path)
+    count = conn.execute("SELECT COUNT(*) FROM raw_ars_players_2018").fetchone()[0]
+    conn.close()
+    assert count == 1

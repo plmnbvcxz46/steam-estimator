@@ -2,6 +2,8 @@
 
 import csv
 import logging
+import sqlite3
+from datetime import UTC, datetime
 
 logger = logging.getLogger(__name__)
 
@@ -65,3 +67,38 @@ def read_rows(csv_path):
             rows.append((appid, title.strip(), players))
 
     return rows
+
+
+CREATE_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS raw_ars_players_2018 (
+    appid      INTEGER PRIMARY KEY,
+    title      TEXT NOT NULL,
+    players    INTEGER NOT NULL,
+    fetched_at TEXT NOT NULL
+)
+"""
+
+# 已有的 appid 直接覆盖，所以重复运行结果不变
+INSERT_SQL = """
+INSERT OR REPLACE INTO raw_ars_players_2018 (appid, title, players, fetched_at)
+VALUES (?, ?, ?, ?)
+"""
+
+
+def import_ars(csv_path, db_path):
+    """读 Ars 原件，一次性写进 raw_ars_players_2018，返回写入行数。"""
+    rows = read_rows(csv_path)
+    fetched_at = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
+    records = [(appid, title, players, fetched_at) for appid, title, players in rows]
+
+    conn = sqlite3.connect(db_path)
+    try:
+        # with conn：块内全部成功才提交，出错自动回滚，库里不会留半截数据
+        with conn:
+            conn.execute(CREATE_TABLE_SQL)
+            conn.executemany(INSERT_SQL, records)
+    finally:
+        conn.close()
+
+    logger.info("raw_ars_players_2018 写入 %d 行", len(records))
+    return len(records)
