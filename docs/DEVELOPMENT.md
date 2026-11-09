@@ -94,7 +94,7 @@ docs/                                    # 设计、推导、devlog
 | 表 | 主键 | 字段 |
 | --- | --- | --- |
 | `raw_ars_players_2018` | `appid` | `title`、`players` |
-| `raw_appdetails` | `appid` | `name`、`app_type`、`is_free`、`release_date`、`initial_price_usd`（当前原价）、`genres` |
+| `raw_appdetails` | `appid` | `name`、`app_type`、`is_free`、`release_date`（商店页原文，如 `Feb 26, 2016`，清洗时再解析）、`initial_price_usd`（当前原价）、`genres`（用 `|` 连接） |
 | `raw_review_counts` | `(appid, cutoff_date, query)` | `count`；`query` 为计数口径：全部、好评、Steam 内购买、政策后、某语言 |
 | `raw_review_sample` | `(appid, cutoff_date, review_id)` | `created_at`、`playtime_at_review_min`、`playtime_forever_min`（只存档） |
 | `raw_charts_monthly` | `(appid, month)` | `avg_players` |
