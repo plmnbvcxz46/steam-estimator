@@ -1,6 +1,6 @@
 import sqlite3
 
-from crawler.ars import import_ars, parse_players, read_rows
+from crawler.sources.ars import SOURCE_CSV, import_ars, parse_players, read_rows
 
 HEADER = "Title, Players Estimate ,Steam App ID"
 
@@ -22,7 +22,7 @@ def test_read_rows_duplicate_keeps_first(tmp_path):
 
 def test_read_rows_real_file():
     # 用真实原件做一次整体核对：13,281 行减去 6 条重复的
-    path = "data/source/games_achievements_players_2018-07-01_ars_original.csv"
+    path = SOURCE_CSV
     rows = read_rows(path)
     assert len(rows) == 13275
     assert rows[0] == (440, "Team Fortress 2", 50191347)

@@ -2,9 +2,10 @@ import json
 import sqlite3
 from pathlib import Path
 
-from crawler import appdetails, crawl_log
-from crawler.appdetails import parse_appdetails
+from crawler import crawl_log
 from crawler.http import CrawlError
+from crawler.sources import appdetails
+from crawler.sources.appdetails import parse_appdetails
 
 FIXTURES = Path(__file__).parent / "fixtures"
 

@@ -68,6 +68,7 @@ $$
 原则：
 
 - 依赖单向流动，下游只读上游产物，不回写，也不反向调用。只有 `crawler` 发网络请求。
+- `common` 在最底层，四个模块都可以导入它；它不导入任何业务模块，也不放业务规则。项目根目录与各固定路径只在 `common` 中定义一次。
 - 截止日截断、样本划分等规则在 `pipeline` 中只实现一次，各处复用。
 - 三层数据都在同一个 SQLite 数据库 `data/steam.db` 中，用表名前缀 `raw_`、`cleaned_`、`result_` 区分。`raw_*` 永不删除；其余两层和模型文件都是派生数据，删掉后依次运行 `pipeline`、`analysis`、`viz` 即可重建。
 - 数据过滤不静默丢行，每条规则都写日志。
@@ -76,6 +77,9 @@ $$
 
 ```
 crawler/   pipeline/   analysis/   viz/   # 四个模块，入口为 python -m <模块>
+  crawler/sources/                       # 一个数据源一个文件，入口为 python -m crawler.sources.<数据源>
+  crawler/ 其余文件                       # 各数据源共用的采集基础设施：请求、采集日志
+common/                                  # 各模块共用的小工具：路径、日志、时间；不含业务逻辑
 query/                                   # 单款查询入口
 tests/                                   # 数据泄露测试
 data/      steam.db、models/、logs/       # 不入 git，可重建（raw_* 除外）

@@ -4,9 +4,10 @@ import argparse
 import logging
 import random
 import sqlite3
-from datetime import UTC, datetime
-from pathlib import Path
 
+from common.clock import now_utc_str
+from common.log import setup_logging
+from common.paths import DB_PATH
 from crawler import crawl_log
 from crawler.http import CrawlError, get_json
 
@@ -16,10 +17,6 @@ SOURCE = "appdetails"
 URL = "https://store.steampowered.com/api/appdetails"
 MIN_INTERVAL = 1.5  # 两次请求之间至少隔几秒；暂定值，等小批量实测后再定
 SHUFFLE_SEED = 42  # 固定随机种子：每次打乱出的顺序一样，扩大 N 时已爬的不浪费
-
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-DB_PATH = PROJECT_ROOT / "data" / "steam.db"
-LOG_PATH = PROJECT_ROOT / "data" / "logs" / "appdetails.log"
 
 CREATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS raw_appdetails (
@@ -110,7 +107,7 @@ def crawl_appdetails(conn, appids):
             if row is None:
                 crawl_log.record(conn, SOURCE, appid, "未收录")
             else:
-                row["fetched_at"] = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
+                row["fetched_at"] = now_utc_str()
                 conn.execute(INSERT_SQL, row)
                 crawl_log.record(conn, SOURCE, appid, 200)
 
@@ -139,12 +136,7 @@ def main():
     )
     args = parser.parse_args()
 
-    LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(message)s",
-        handlers=[logging.StreamHandler(), logging.FileHandler(LOG_PATH, encoding="utf-8")],
-    )
+    setup_logging("appdetails.log")
 
     conn = sqlite3.connect(DB_PATH)
     try:

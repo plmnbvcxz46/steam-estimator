@@ -4,7 +4,7 @@
 事务里，由调用者统一提交。
 """
 
-from datetime import UTC, datetime
+from common.clock import now_utc_str
 
 CREATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS raw_crawl_log (
@@ -26,11 +26,10 @@ def ensure_table(conn):
 
 def record(conn, source, request_key, status):
     """记一条结局；同一个请求以后再记会覆盖旧的（失败后重试成功就变成成功）。"""
-    fetched_at = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
     conn.execute(
         "INSERT OR REPLACE INTO raw_crawl_log (source, request_key, status, fetched_at)"
         " VALUES (?, ?, ?, ?)",
-        (source, str(request_key), str(status), fetched_at),
+        (source, str(request_key), str(status), now_utc_str()),
     )
 
 
