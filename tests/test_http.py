@@ -14,7 +14,7 @@ class FakeResponse:
 
 
 def fake_get_factory(responses):
-    """返回一个假的 requests.get：每调用一次，依次吐出 responses 里的下一项。
+    """返回一个假的 get（代替会话的 get）：每调用一次，依次吐出 responses 里的下一项。
     项是 FakeResponse 就当作响应返回，是异常就抛出。"""
     calls = []
 
@@ -42,7 +42,7 @@ def test_retries_then_succeeds(monkeypatch):
         FakeResponse(429),
         FakeResponse(200, {"ok": True}),
     ])
-    monkeypatch.setattr(http.requests, "get", fake_get)
+    monkeypatch.setattr(http._session, "get", fake_get)
 
     assert http.get_json("https://example.com/a") == {"ok": True}
     assert len(fake_get.calls) == 3
@@ -51,7 +51,7 @@ def test_retries_then_succeeds(monkeypatch):
 def test_404_is_not_retried(monkeypatch):
     # 404 重试没用，应该只请求一次就抛错
     fake_get = fake_get_factory([FakeResponse(404)])
-    monkeypatch.setattr(http.requests, "get", fake_get)
+    monkeypatch.setattr(http._session, "get", fake_get)
 
     with pytest.raises(http.CrawlError) as err:
         http.get_json("https://example.com/a")
@@ -62,7 +62,7 @@ def test_404_is_not_retried(monkeypatch):
 def test_gives_up_after_max_retries(monkeypatch):
     # 一直 500：试 1 + MAX_RETRIES 次后放弃，状态记为 500
     fake_get = fake_get_factory([FakeResponse(500)] * (http.MAX_RETRIES + 1))
-    monkeypatch.setattr(http.requests, "get", fake_get)
+    monkeypatch.setattr(http._session, "get", fake_get)
 
     with pytest.raises(http.CrawlError) as err:
         http.get_json("https://example.com/a")
