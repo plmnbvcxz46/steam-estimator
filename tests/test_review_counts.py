@@ -57,19 +57,20 @@ def fake_get_json_factory(failing_purchase_types=()):
 
 def read_counts(conn):
     rows = conn.execute(
-        "SELECT query, count FROM raw_review_counts WHERE appid = 220 ORDER BY query"
+        "SELECT query, total, positive FROM raw_review_counts WHERE appid = 220"
     )
-    return dict(rows.fetchall())
+    return {query: (total, positive) for query, total, positive in rows}
 
 
-def test_crawl_writes_three_queries(monkeypatch):
+def test_crawl_writes_one_row_per_request(monkeypatch):
     conn = sqlite3.connect(":memory:")
     monkeypatch.setattr(review_counts, "get_json", fake_get_json_factory())
 
     review_counts.crawl_review_counts(conn, [220], "2018-07-01")
 
-    assert read_counts(conn) == {"全部": 53440, "好评": 51896, "Steam内购买": 36595}
-    # 两次请求（全部、内购买）各记一条日志；“好评”不单独记，它和“全部”是同一次请求
+    # 一次请求一行，总数和好评数存在同一行
+    assert read_counts(conn) == {"全部": (53440, 51896), "Steam内购买": (36595, 35480)}
+    # 两次请求各记一条日志
     assert crawl_log.done_keys(conn, "review_counts") == {
         "220|2018-07-01|全部",
         "220|2018-07-01|Steam内购买",
@@ -92,12 +93,12 @@ def test_crawl_failure_is_retried_next_time(monkeypatch):
     monkeypatch.setattr(review_counts, "get_json", fake_get_json_factory(failing_purchase_types={0}))
     review_counts.crawl_review_counts(conn, [220], "2018-07-01")
 
-    # 内购买那次失败：“全部”“好评”已写入，内购买没有
-    assert read_counts(conn) == {"全部": 53440, "好评": 51896}
+    # 内购买那次失败：“全部”已写入，内购买没有
+    assert read_counts(conn) == {"全部": (53440, 51896)}
 
     # 下次重跑恢复正常，只补内购买，不重复请求“全部”
     fake = fake_get_json_factory()
     monkeypatch.setattr(review_counts, "get_json", fake)
     review_counts.crawl_review_counts(conn, [220], "2018-07-01")
     assert fake.calls == [0]
-    assert read_counts(conn) == {"全部": 53440, "好评": 51896, "Steam内购买": 36595}
+    assert read_counts(conn) == {"全部": (53440, 51896), "Steam内购买": (36595, 35480)}

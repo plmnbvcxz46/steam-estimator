@@ -27,13 +27,13 @@ URL = "https://api.steampowered.com/IUserReviewsService/GetAppReviews/v1/"
 MIN_INTERVAL = 1.5  # 暂定值，小批量实测后再定
 DEFAULT_CUTOFF = "2018-07-01"  # 原型阶段的截止日（Ars 玩家数表的日期）
 
-# query 是计数口径。先做前三种，政策后和各语言放第二步。
-QUERY_ALL = "全部"  # 截止日前所有语言的评测总数
-QUERY_POSITIVE = "好评"  # 其中的好评数（和“全部”来自同一次请求）
+# query 是请求口径，表示这次请求是怎么筛评测的。每次请求写一行，同时存评测总数和其中的好评数。
+# 先做前两种，政策后和各语言放后面。
+QUERY_ALL = "全部"  # 截止日前所有语言的评测
 QUERY_STEAM_PURCHASE = "Steam内购买"  # 只算在 Steam 里买的游戏的评测（purchase_type=0）
 # 第二步再加： "政策后"（date_range_start 设为 2019-11 的政策日）、"语言:<名字>"（languages=[名字]）
 
-# 每个游戏发的请求：(口径, purchase_type)。“全部”这次请求会同时写出“全部”和“好评”两行
+# 每个游戏发的请求：(口径, purchase_type)。每次请求写一行
 REQUESTS = ((QUERY_ALL, 1), (QUERY_STEAM_PURCHASE, 0))
 
 # 主键 (appid, cutoff_date, query)：同一个游戏、同一个截止日、同一种口径只有一行
@@ -42,15 +42,16 @@ CREATE TABLE IF NOT EXISTS raw_review_counts (
     appid       INTEGER NOT NULL,
     cutoff_date TEXT NOT NULL,
     query       TEXT NOT NULL,
-    count       INTEGER NOT NULL,
+    total       INTEGER NOT NULL,
+    positive    INTEGER NOT NULL,
     fetched_at  TEXT NOT NULL,
     PRIMARY KEY (appid, cutoff_date, query)
 )
 """
 
 INSERT_SQL = """
-INSERT OR REPLACE INTO raw_review_counts (appid, cutoff_date, query, count, fetched_at)
-VALUES (:appid, :cutoff_date, :query, :count, :fetched_at)
+INSERT OR REPLACE INTO raw_review_counts (appid, cutoff_date, query, total, positive, fetched_at)
+VALUES (:appid, :cutoff_date, :query, :total, :positive, :fetched_at)
 """
 
 
@@ -147,24 +148,17 @@ def crawl_review_counts(conn, appids, cutoff_date=DEFAULT_CUTOFF):
                     crawl_log.record(conn, SOURCE, key, "parse_error")
                 continue
 
-            # “全部”这次请求同时给出好评数，写两行；其余口径写一行
-            if query == QUERY_ALL:
-                counts = {QUERY_ALL: total, QUERY_POSITIVE: positive}
-            else:
-                counts = {query: total}
-
+            row = {
+                "appid": appid,
+                "cutoff_date": cutoff_date,
+                "query": query,
+                "total": total,
+                "positive": positive,
+                "fetched_at": now_utc_str(),
+            }
             # 一个请求一个事务：数据行和日志要么都写入，要么都不写
-            fetched_at = now_utc_str()
             with conn:
-                for name, count in counts.items():
-                    row = {
-                        "appid": appid,
-                        "cutoff_date": cutoff_date,
-                        "query": name,
-                        "count": count,
-                        "fetched_at": fetched_at,
-                    }
-                    conn.execute(INSERT_SQL, row)
+                conn.execute(INSERT_SQL, row)
                 crawl_log.record(conn, SOURCE, key, 200)
 
         if i % 20 == 0:
