@@ -103,7 +103,7 @@ docs/                                    # 设计、推导、devlog
 | `raw_review_sample` | `(appid, cutoff_date, review_id)` | `created_at`、`playtime_at_review_min`、`playtime_forever_min`（只存档） |
 | `raw_charts_monthly` | `(appid, month)` | `avg_players` |
 | `raw_itad_ids` | `appid` | `itad_id`（ITAD 的游戏编号，未收录时为空）；查历史价格前先用它把 `appid` 换成 ITAD 编号 |
-| `raw_price_history` | `(appid, country, changed_at)` | 一次价格变动一行：`currency`、`price`（变动后的实付价）、`regular`（变动后的原价）、`cut`（折扣百分比）；`changed_at` 为变动时刻（接口原文）；`country` 暂时只采 `US`；存全部历史，截止日筛选留给 `pipeline`。字段为暂定，以实现时为准 |
+| `raw_price_history` | `(appid, country, changed_at)` | 一次价格变动一行，只记变动之后的状态：`currency`、`price`（实付价）、`regular`（当时的标价，不打折时卖多少）、`cut`（折扣百分比）。不存“上一个价格”和“结束时间”：上一个价格就是上一行的 `price`，一条记录的状态持续到下一条记录的 `changed_at` 为止。`changed_at` 为变动时刻，入库时统一换成 UTC；`country` 暂时只采 `US`；存全部历史，截止日筛选留给 `pipeline`。字段为暂定，以实现时为准 |
 | `raw_truth` | `appid` | `name`、`sales`、`cutoff_date`、`source_url` |
 | `raw_crawl_log` | `(source, request_key)` | `status`（HTTP 状态或“未收录”“空结果”） |
 
@@ -112,7 +112,7 @@ docs/                                    # 设计、推导、devlog
 | 表 | 主键 | 字段 |
 | --- | --- | --- |
 | `cleaned_games` | `appid` | `name`、`release_date`、`release_date_source`（商店 / 第一条评测）、`genres` |
-| `cleaned_prices` | `(appid, date)` | `base_price_usd`、`discount_percent`、`price_source`（`history` / `current`） |
+| `cleaned_prices` | `(appid, date)` | 把价格变动记录按天铺开，每款游戏每天一行：`base_price_usd`、`discount_percent`、`price_source`（`history` / `current`） |
 | `cleaned_charts_monthly` | `(appid, month)` | `avg_players` |
 | `cleaned_samples` | `sample_id` | 样本：`appid`、`cutoff_date`、`split`（`train` / `calib` / `query`）、`truth_value`（`query` 为空）<br>评测：`total_reviews`、`positive_rate`、`steam_purchase_ratio`、`p_post`、`share_<语言>`、`playtime_median_hrs`、`playtime_mean_hrs`、`sample_n`（抽样条数，用于设定时长可靠性阈值）<br>价格：`price_at_cutoff_usd`、`price_source`、`frac_time_cut75`（深度折扣时间占比）、`avg_price_usd`（截止日前按天平均的实付价格）<br>其他：`game_age_years`、`genre_<类型>`、`charts_total_hours`（$H$） |
 
@@ -162,6 +162,7 @@ docs/                                    # 设计、推导、devlog
 - 抢先体验游戏用第一条评测的日期作为上架日。
 - 近年真值表人工筛选时，只收录评测数足够、截止日不早于 Steam 评测系统上线（2013-11）的游戏；`pipeline` 再校验一次，不符合的剔除并写日志。
 - 历史价格缺失的游戏不删除：用当前原价兜底，深度折扣占比和平均实付价格留空，并标明价格来源。
+- 价格特征只从第一条价格记录算起，之前的价格未知，不假设为原价。相邻两条记录隔得过久的折扣多半是漏记了“恢复原价”，需要截断或标记；阈值等看过实际的折扣时长分布再定。
 
 训练集设置评测数 $\ge 500$ 的准入门槛。原因一：2018 年真值来自对公开玩家资料的抽样，玩家少的游戏被截掉或测不准，相当于按结果变量抽样，保留小游戏会使估计出的 $k$ 偏高；门槛设在输入变量（评测数）上不会新增这种偏差。原因二：评测少时 $k$ 的噪声大。代价是对小游戏属于外推，因此校准中加入 $\ln R$ 项，评估时大小游戏分开报告，评测少的游戏在置信标签中降档。
 
@@ -310,14 +311,14 @@ $$
 
 ### 7.2 候选改进
 
-主线跑通后再考虑，按需取用：
+主线跑通后再考虑，按需取用。先只用主线特征得到基线，之后每次只试一项并与基线对照。加特征遵守三条：说得出它为什么会改变 $k$；同一件事只留一个代表；交叉验证没有明显改善就不留。
 
 | 方向 | 说明 |
 | --- | --- |
 | 耐玩度 | 抽样评测时长的均值与中位数之比，加入信号 B 的人均时长拟合。早期探索版本数据上能减小 B 的误差，但没有提高命中率 |
 | 评测时间线 | 首月评测占比、评测数的衰减速度等特征 |
 | 更多价格特征 | 由同一份价格历史再算：任意折扣的时间占比、最大折扣、每年打折次数、永久降价幅度等；先在 `pipeline` 里算出来，留不留由交叉验证决定 |
-| 慈善包与免费赠送 | ITAD 另有慈善包和免费赠送记录（带起止时间），这类拥有者很少写评测，可能抬高 $k$；需新增两张 raw 表，老记录是否齐全尚未核实 |
+| 慈善包与免费赠送 | ITAD 另有慈善包和免费赠送记录（带起止时间），这类拥有者很少写评测，可能抬高 $k$；需新增两张 raw 表，老记录是否齐全尚未核实。与 Steam 内购买占比有重叠；慈善包要区分主打与陪衬（可用所在档位价格等间接指标），先试慈善包 |
 | 区域定价 | 加采中国区等价格，用相对美国区的比值作特征；初步比较显示各区折扣基本同步，差别主要在原价水平 |
 | 第三路信号 | 关注者数、成就解锁率等，可在两路分歧大时帮助判断该信哪一路 |
 | 真值增多后 | 小游戏单独修正、按开发商分组交叉验证、纳入评测少于 500 的游戏等 |
