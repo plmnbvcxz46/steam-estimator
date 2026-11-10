@@ -9,6 +9,9 @@ from crawler.sources import review_counts
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
+# 一个游戏发的请求数：all、steam_purchase，加上每种语言各一次
+REQUEST_COUNT = 2 + len(review_counts.LANGUAGES)
+
 
 def load_summary():
     return json.loads((FIXTURES / "review_summary_220.json").read_text(encoding="utf-8"))
@@ -41,19 +44,27 @@ def test_parse_review_summary_real_response():
 # ---- 采集主循环：用假的 get_json 代替联网，数据库用内存临时库 ----
 
 def fake_get_json_factory(failing_purchase_types=()):
-    """假的 get_json：purchase_type=1 返回样本；purchase_type=0 返回改过数字的样本。"""
+    """假的 get_json，按请求参数返回不同的数字，方便检查数字写进了哪一行：
+    purchase_type=0 -> 36595 / 35480；languages=["schinese"] -> 1000 / 900；其余 -> 样本原数字。
+    calls 记下每次请求的 (purchase_type, languages)。
+    """
     calls = []
 
     def fake_get_json(url, params=None, min_interval=None):
         query = json.loads(params["input_json"])
         purchase_type = query["purchase_type"]
-        calls.append(purchase_type)
+        languages = tuple(query["languages"])
+        calls.append((purchase_type, languages))
         if purchase_type in failing_purchase_types:
             raise CrawlError("timeout", "模拟超时")
         response = copy.deepcopy(load_summary())
+        summary = response["response"]["query_summary"]
         if purchase_type == 0:
-            response["response"]["query_summary"]["total_reviews"] = 36595
-            response["response"]["query_summary"]["total_positive"] = 35480
+            summary["total_reviews"] = 36595
+            summary["total_positive"] = 35480
+        if languages == ("schinese",):
+            summary["total_reviews"] = 1000
+            summary["total_positive"] = 900
         return response
 
     fake_get_json.calls = calls
@@ -74,12 +85,18 @@ def test_crawl_writes_one_row_per_request(monkeypatch):
     review_counts.crawl_review_counts(conn, [220], "2018-07-01")
 
     # 一次请求一行，总数和好评数存在同一行
-    assert read_counts(conn) == {"all":(53440, 51896), "steam_purchase":(36595, 35480)}
-    # 两次请求各记一条日志
-    assert crawl_log.done_keys(conn, "review_counts") == {
-        "220|2018-07-01|all",
-        "220|2018-07-01|steam_purchase",
-    }
+    counts = read_counts(conn)
+    assert counts["all"] == (53440, 51896)
+    assert counts["steam_purchase"] == (36595, 35480)
+    assert counts["lang:english"] == (53440, 51896)
+    assert counts["lang:schinese"] == (1000, 900)  # 语言请求的数字写进了对应的行
+    assert len(counts) == REQUEST_COUNT
+
+    # 每次请求各记一条日志
+    keys = crawl_log.done_keys(conn, "review_counts")
+    assert len(keys) == REQUEST_COUNT
+    assert "220|2018-07-01|all" in keys
+    assert "220|2018-07-01|lang:schinese" in keys
 
 
 def test_crawl_resumes_without_repeating(monkeypatch):
@@ -90,7 +107,7 @@ def test_crawl_resumes_without_repeating(monkeypatch):
     review_counts.crawl_review_counts(conn, [220], "2018-07-01")
     review_counts.crawl_review_counts(conn, [220], "2018-07-01")  # 重跑：不该再请求
 
-    assert fake.calls == [1, 0]  # 只在第一次跑时请求了两次
+    assert len(fake.calls) == REQUEST_COUNT  # 只在第一次跑时发了请求
 
 
 def test_crawl_failure_is_retried_next_time(monkeypatch):
@@ -99,11 +116,12 @@ def test_crawl_failure_is_retried_next_time(monkeypatch):
     review_counts.crawl_review_counts(conn, [220], "2018-07-01")
 
     # 内购买那次失败：all 已写入，steam_purchase 没有
-    assert read_counts(conn) == {"all":(53440, 51896)}
+    assert "steam_purchase" not in read_counts(conn)
+    assert read_counts(conn)["all"] == (53440, 51896)
 
-    # 下次重跑恢复正常，只补 steam_purchase，不重复请求 all
+    # 下次重跑恢复正常，只补 steam_purchase，不重复请求别的
     fake = fake_get_json_factory()
     monkeypatch.setattr(review_counts, "get_json", fake)
     review_counts.crawl_review_counts(conn, [220], "2018-07-01")
-    assert fake.calls == [0]
-    assert read_counts(conn) == {"all":(53440, 51896), "steam_purchase":(36595, 35480)}
+    assert fake.calls == [(0, ("all",))]
+    assert read_counts(conn)["steam_purchase"] == (36595, 35480)

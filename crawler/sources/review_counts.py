@@ -31,13 +31,40 @@ DEFAULT_CUTOFF = "2018-07-01"  # 原型阶段的截止日（Ars 玩家数表的�
 # 它是我们自己起的标签，只存进表和日志，不发给 Steam；用英文，方便写 SQL 和以后转成列名。
 QUERY_ALL = "all"  # 截止日前所有语言的评测
 QUERY_STEAM_PURCHASE = "steam_purchase"  # 只算在 Steam 里买的游戏的评测（purchase_type=0）
-# 后面再加： "lang:<Steam 语言代码>"（languages=[代码]）、"post_policy"（政策日之后的评测）
+QUERY_LANGUAGE_PREFIX = "lang:"  # 各语言的标签 = 前缀 + Steam 语言代码，如 "lang:schinese"
+# 后面再加： "post_policy"（政策日之后的评测），等近年真值表导入后再做
+
+# Steam 的语言代码。接口返回的是所列语言加在一起的数，所以每种语言要单独发一次请求。
+# spanish（西班牙西语）和 latam（拉美西语）在这里各存各的，合并留给 pipeline。
+LANGUAGES = (
+    "english",
+    "schinese",
+    "tchinese",
+    "russian",
+    "german",
+    "french",
+    "polish",
+    "japanese",
+    "koreana",
+    "turkish",
+    "brazilian",
+    "spanish",
+    "latam",
+)
 
 # 每个游戏发的请求清单，一项是一次请求的“配方”，字段按名字取，不靠位置。每次请求写一行。
 REQUESTS = [
-    {"query": QUERY_ALL, "purchase_type": 1},
-    {"query": QUERY_STEAM_PURCHASE, "purchase_type": 0},
+    {"query": QUERY_ALL, "purchase_type": 1, "languages": ("all",)},
+    {"query": QUERY_STEAM_PURCHASE, "purchase_type": 0, "languages": ("all",)},
 ]
+for language in LANGUAGES:
+    REQUESTS.append(
+        {
+            "query": QUERY_LANGUAGE_PREFIX + language,
+            "purchase_type": 1,
+            "languages": (language,),
+        }
+    )
 
 # 主键 (appid, cutoff_date, query)：同一个游戏、同一个截止日、同一种口径只有一行
 CREATE_TABLE_SQL = """
@@ -143,7 +170,7 @@ def crawl_review_counts(conn, appids, cutoff_date=DEFAULT_CUTOFF):
 
             try:
                 total, positive = fetch_summary(
-                    appid, cutoff_date, request["purchase_type"]
+                    appid, cutoff_date, request["purchase_type"], request["languages"]
                 )
             except CrawlError as err:
                 logger.warning("appid=%d 口径=%s 请求失败: %s", appid, query, err)
