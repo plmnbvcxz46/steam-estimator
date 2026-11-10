@@ -99,7 +99,7 @@ docs/                                    # 设计、推导、devlog
 | --- | --- | --- |
 | `raw_ars_players_2018` | `appid` | `title`、`players` |
 | `raw_appdetails` | `appid` | `name`、`app_type`、`is_free`、`release_date`（商店页原文，如 `Feb 26, 2016`，清洗时再解析）、`initial_price_usd`（当前原价）、`genres`（用 `|` 连接） |
-| `raw_review_counts` | `(appid, cutoff_date, query)` | `total`（评测数）、`positive`（其中好评数）；`query` 为请求口径：全部、Steam 内购买、政策后、某语言（`语言:<Steam 语言代码>`）；一次请求一行 |
+| `raw_review_counts` | `(appid, cutoff_date, query)` | `total`（评测数）、`positive`（其中好评数）；`query` 为请求口径的英文标签：`all`（全部）、`steam_purchase`（Steam 内购买）、`post_policy`（政策后）、`lang:<Steam 语言代码>`（某语言）；一次请求一行 |
 | `raw_review_sample` | `(appid, cutoff_date, review_id)` | `created_at`、`playtime_at_review_min`、`playtime_forever_min`（只存档） |
 | `raw_charts_monthly` | `(appid, month)` | `avg_players` |
 | `raw_price_history` | `(appid, date, source)` | `base_price_usd`、`discount_percent`；`source` 为 ITAD 或档案馆 |

@@ -28,10 +28,10 @@ MIN_INTERVAL = 1.5  # 暂定值，小批量实测后再定
 DEFAULT_CUTOFF = "2018-07-01"  # 原型阶段的截止日（Ars 玩家数表的日期）
 
 # query 是请求口径，表示这次请求是怎么筛评测的。每次请求写一行，同时存评测总数和其中的好评数。
-# 先做前两种，政策后和各语言放后面。
-QUERY_ALL = "全部"  # 截止日前所有语言的评测
-QUERY_STEAM_PURCHASE = "Steam内购买"  # 只算在 Steam 里买的游戏的评测（purchase_type=0）
-# 第二步再加： "政策后"（date_range_start 设为 2019-11 的政策日）、"语言:<名字>"（languages=[名字]）
+# 它是我们自己起的标签，只存进表和日志，不发给 Steam；用英文，方便写 SQL 和以后转成列名。
+QUERY_ALL = "all"  # 截止日前所有语言的评测
+QUERY_STEAM_PURCHASE = "steam_purchase"  # 只算在 Steam 里买的游戏的评测（purchase_type=0）
+# 后面再加： "lang:<Steam 语言代码>"（languages=[代码]）、"post_policy"（政策日之后的评测）
 
 # 每个游戏发的请求清单，一项是一次请求的“配方”，字段按名字取，不靠位置。每次请求写一行。
 REQUESTS = [

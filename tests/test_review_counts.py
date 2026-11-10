@@ -74,11 +74,11 @@ def test_crawl_writes_one_row_per_request(monkeypatch):
     review_counts.crawl_review_counts(conn, [220], "2018-07-01")
 
     # 一次请求一行，总数和好评数存在同一行
-    assert read_counts(conn) == {"全部": (53440, 51896), "Steam内购买": (36595, 35480)}
+    assert read_counts(conn) == {"all":(53440, 51896), "steam_purchase":(36595, 35480)}
     # 两次请求各记一条日志
     assert crawl_log.done_keys(conn, "review_counts") == {
-        "220|2018-07-01|全部",
-        "220|2018-07-01|Steam内购买",
+        "220|2018-07-01|all",
+        "220|2018-07-01|steam_purchase",
     }
 
 
@@ -98,12 +98,12 @@ def test_crawl_failure_is_retried_next_time(monkeypatch):
     monkeypatch.setattr(review_counts, "get_json", fake_get_json_factory(failing_purchase_types={0}))
     review_counts.crawl_review_counts(conn, [220], "2018-07-01")
 
-    # 内购买那次失败：“全部”已写入，内购买没有
-    assert read_counts(conn) == {"全部": (53440, 51896)}
+    # 内购买那次失败：all 已写入，steam_purchase 没有
+    assert read_counts(conn) == {"all":(53440, 51896)}
 
-    # 下次重跑恢复正常，只补内购买，不重复请求“全部”
+    # 下次重跑恢复正常，只补 steam_purchase，不重复请求 all
     fake = fake_get_json_factory()
     monkeypatch.setattr(review_counts, "get_json", fake)
     review_counts.crawl_review_counts(conn, [220], "2018-07-01")
     assert fake.calls == [0]
-    assert read_counts(conn) == {"全部": (53440, 51896), "Steam内购买": (36595, 35480)}
+    assert read_counts(conn) == {"all":(53440, 51896), "steam_purchase":(36595, 35480)}
