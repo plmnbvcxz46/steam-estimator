@@ -28,6 +28,11 @@ def test_build_input_json():
     assert params["date_range_end"] == 1530403200
 
 
+def test_build_input_json_with_language():
+    params = review_counts.build_input_json(220, "2018-07-01", languages=("schinese",))
+    assert params["languages"] == ["schinese"]
+
+
 def test_parse_review_summary_real_response():
     # 样本来自 appid 220 在 2018-07-01 零点前的真实返回（评测正文已去掉）
     assert review_counts.parse_review_summary(load_summary()) == (53440, 51896)

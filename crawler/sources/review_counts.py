@@ -68,13 +68,13 @@ def cutoff_ts(cutoff_date):
     return int(day.timestamp())
 
 
-def build_input_json(appid, cutoff_date, purchase_type=1):
+def build_input_json(appid, cutoff_date, purchase_type=1, languages=("all",)):
     """组装接口的 input_json 参数（返回 dict，调用处再 json.dumps）。
 
-    关键参数（旧版踩过的坑）：
+    关键参数：
         appid                       游戏编号
-        num_per_page: 0             只要汇总数，不要评测正文（实测接口仍会附带 20 条，不影响汇总）
-        languages: ["all"]          不传只统计英文评测
+        num_per_page: 0             只要汇总数，不要评测正文
+        languages                   Steam 语言代码的列表；["all"] 是所有语言，不传只统计英文评测
         purchase_type               0=只算在 Steam 买的，1=全部，2=非 Steam 购买
         filter: 1                   按时间排序；默认“最有帮助”会自动放宽日期范围
         filter_offtopic_activity: False   不过滤“刷差评”期间的评测
@@ -84,7 +84,7 @@ def build_input_json(appid, cutoff_date, purchase_type=1):
     return {
         "appid": appid,
         "num_per_page": 0,
-        "languages": ["all"],
+        "languages": list(languages),  # JSON 里的数组对应列表，元组要先转一下
         "purchase_type": purchase_type,
         "filter": 1,
         "filter_offtopic_activity": False,
@@ -103,10 +103,13 @@ def parse_review_summary(response):
     return summary["total_reviews"], summary["total_positive"]
 
 
-def fetch_summary(appid, cutoff_date, purchase_type=1):
+def fetch_summary(appid, cutoff_date, purchase_type=1, languages=("all",)):
     """请求一次，返回 (评测总数, 好评数)。请求最终失败时 get_json 会抛 CrawlError，这里不拦。"""
     params: dict = build_input_json(
-        appid=appid, cutoff_date=cutoff_date, purchase_type=purchase_type
+        appid=appid,
+        cutoff_date=cutoff_date,
+        purchase_type=purchase_type,
+        languages=languages,
     )
     res = get_json(
         url=URL, params={"input_json": json.dumps(params)}, min_interval=MIN_INTERVAL
@@ -139,7 +142,9 @@ def crawl_review_counts(conn, appids, cutoff_date=DEFAULT_CUTOFF):
                 continue
 
             try:
-                total, positive = fetch_summary(appid, cutoff_date, request["purchase_type"])
+                total, positive = fetch_summary(
+                    appid, cutoff_date, request["purchase_type"]
+                )
             except CrawlError as err:
                 logger.warning("appid=%d 口径=%s 请求失败: %s", appid, query, err)
                 with conn:
@@ -147,7 +152,9 @@ def crawl_review_counts(conn, appids, cutoff_date=DEFAULT_CUTOFF):
                 continue
             except (KeyError, TypeError) as err:
                 # 接口返回缺字段或结构变了：记下原因，跳过这一次，不让整批崩掉
-                logger.warning("appid=%d 口径=%s 解析失败，缺少或错误的字段: %r", appid, query, err)
+                logger.warning(
+                    "appid=%d 口径=%s 解析失败，缺少或错误的字段: %r", appid, query, err
+                )
                 with conn:
                     crawl_log.record(conn, SOURCE, key, "parse_error")
                 continue
@@ -173,10 +180,15 @@ def main():
     """命令行入口：python -m crawler.sources.review_counts [数量] [--cutoff 日期]"""
     parser = argparse.ArgumentParser(description="采集 Steam 评测计数")
     parser.add_argument(
-        "limit", type=int, nargs="?", default=None,
+        "limit",
+        type=int,
+        nargs="?",
+        default=None,
         help="从 Ars 表里取多少个 appid 来爬；不写则爬全部",
     )
-    parser.add_argument("--cutoff", default=DEFAULT_CUTOFF, help="截止日，格式 YYYY-MM-DD")
+    parser.add_argument(
+        "--cutoff", default=DEFAULT_CUTOFF, help="截止日，格式 YYYY-MM-DD"
+    )
     args = parser.parse_args()
 
     setup_logging("review_counts.log")
