@@ -33,8 +33,11 @@ QUERY_ALL = "全部"  # 截止日前所有语言的评测
 QUERY_STEAM_PURCHASE = "Steam内购买"  # 只算在 Steam 里买的游戏的评测（purchase_type=0）
 # 第二步再加： "政策后"（date_range_start 设为 2019-11 的政策日）、"语言:<名字>"（languages=[名字]）
 
-# 每个游戏发的请求：(口径, purchase_type)。每次请求写一行
-REQUESTS = ((QUERY_ALL, 1), (QUERY_STEAM_PURCHASE, 0))
+# 每个游戏发的请求清单，一项是一次请求的“配方”，字段按名字取，不靠位置。每次请求写一行。
+REQUESTS = [
+    {"query": QUERY_ALL, "purchase_type": 1},
+    {"query": QUERY_STEAM_PURCHASE, "purchase_type": 0},
+]
 
 # 主键 (appid, cutoff_date, query)：同一个游戏、同一个截止日、同一种口径只有一行
 CREATE_TABLE_SQL = """
@@ -129,13 +132,14 @@ def crawl_review_counts(conn, appids, cutoff_date=DEFAULT_CUTOFF):
     logger.info("共 %d 个游戏，截止日 %s", len(appids), cutoff_date)
 
     for i, appid in enumerate(appids, start=1):
-        for query, purchase_type in REQUESTS:
+        for request in REQUESTS:
+            query = request["query"]
             key = make_request_key(appid, cutoff_date, query)
             if key in done:
                 continue
 
             try:
-                total, positive = fetch_summary(appid, cutoff_date, purchase_type)
+                total, positive = fetch_summary(appid, cutoff_date, request["purchase_type"])
             except CrawlError as err:
                 logger.warning("appid=%d 口径=%s 请求失败: %s", appid, query, err)
                 with conn:
