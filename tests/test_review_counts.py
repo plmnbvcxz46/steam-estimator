@@ -140,3 +140,22 @@ def test_crawl_with_several_workers_writes_same_rows(monkeypatch):
     assert counts["steam_purchase"] == (36595, 35480)
     assert counts["lang:schinese"] == (1000, 900)  # 结果没有和别的请求串行
     assert len(fake.calls) == REQUEST_COUNT
+
+
+def test_delisted_game_is_recorded_and_not_retried(monkeypatch):
+    # 已下架的游戏（如 538510）接口返回 {"response": {}}：不写数据行，记“未收录”，重跑不再请求
+    conn = sqlite3.connect(":memory:")
+    calls = []
+
+    def fake_get_json(url, params=None, min_interval=None):
+        calls.append(params)
+        return {"response": {}}
+
+    monkeypatch.setattr(review_counts, "get_json", fake_get_json)
+
+    review_counts.crawl_review_counts(conn, [538510], "2018-07-01")
+    review_counts.crawl_review_counts(conn, [538510], "2018-07-01")
+
+    assert conn.execute("SELECT COUNT(*) FROM raw_review_counts").fetchone()[0] == 0
+    assert len(crawl_log.done_keys(conn, "review_counts")) == REQUEST_COUNT
+    assert len(calls) == REQUEST_COUNT  # 第二次跑没有再发请求

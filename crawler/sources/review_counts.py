@@ -134,17 +134,25 @@ def build_input_json(appid, cutoff_date, purchase_type=1, languages=("all",)):
 
 
 def parse_review_summary(response):
-    """从接口返回里取出 (评测总数, 好评数)。
+    """从接口返回里取出 (评测总数, 好评数)；游戏已从商店下架时返回 None。
 
     返回里的位置： response["response"]["query_summary"]["total_reviews"] 和 ["total_positive"]
-    接口没给汇总时，让它直接报错（KeyError），由主循环记 parse_error 并跳过。
+
+    下架的游戏接口返回 {"response": {}}，里面是空的，重试多少次都一样。
+    （一条评测都没有的游戏不是这样：它有 query_summary，只是数字全是 0。）
+    别的缺字段情况仍然直接报错（KeyError），由 fetch_job 记 parse_error，下次重试。
     """
+    if response["response"] == {}:
+        return None
     summary = response["response"]["query_summary"]
     return summary["total_reviews"], summary["total_positive"]
 
 
 def fetch_summary(appid, cutoff_date, purchase_type=1, languages=("all",)):
-    """请求一次，返回 (评测总数, 好评数)。请求最终失败时 get_json 会抛 CrawlError，这里不拦。"""
+    """请求一次，返回 (评测总数, 好评数)；游戏已下架时返回 None。
+
+    请求最终失败时 get_json 会抛 CrawlError，这里不拦。
+    """
     params: dict = build_input_json(
         appid=appid,
         cutoff_date=cutoff_date,
@@ -193,8 +201,8 @@ def fetch_job(job):
     """做一个任务：发一次请求，返回结果（dict）。失败不抛异常，原因写在 status 里。
 
     结果里带着任务自己的身份（appid、cutoff_date、query），拿到结果就知道它是谁的。
-    status 是 200、get_json 给的失败原因（如 "timeout"、429），或 "parse_error"；
-    只有 200 时才有 total 和 positive。
+    status 是 200、"未收录"（游戏已下架，不用再试）、get_json 给的失败原因
+    （如 "timeout"、429），或 "parse_error"；只有 200 时才有 total 和 positive。
 
     这个函数会在线程池的线程里运行，所以只联网、不碰数据库：
     sqlite3 的连接只能在创建它的线程里用，写库统一留给主线程。
@@ -205,7 +213,7 @@ def fetch_job(job):
     result = {"appid": appid, "cutoff_date": cutoff_date, "query": query}
 
     try:
-        total, positive = fetch_summary(
+        summary = fetch_summary(
             appid, cutoff_date, job["purchase_type"], job["languages"]
         )
     except CrawlError as err:
@@ -220,6 +228,13 @@ def fetch_job(job):
         result["status"] = "parse_error"
         return result
 
+    if summary is None:
+        # “未收录”是有定论的结局，重跑时会跳过（见 crawl_log.DONE_STATUSES）
+        logger.info("appid=%d 口径=%s 游戏已下架，接口返回为空", appid, query)
+        result["status"] = "未收录"
+        return result
+
+    total, positive = summary
     result["status"] = 200
     result["total"] = total
     result["positive"] = positive
