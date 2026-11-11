@@ -24,7 +24,10 @@ logger = logging.getLogger(__name__)
 
 SOURCE = "review_counts"  # 写进 raw_crawl_log 的数据源名
 URL = "https://api.steampowered.com/IUserReviewsService/GetAppReviews/v1/"
-MIN_INTERVAL = 1.5  # 暂定值，小批量实测后再定
+# 两次请求之间至少隔几秒（从上一次发出时算起）。
+# 实测一次请求本身要 0.7 到 0.9 秒，所以 0.3 实际上几乎不用等，速度约每秒 1 次；
+# 留着它是防止哪天接口变快后请求发得过密。实测记录见 docs/devlog.md
+MIN_INTERVAL = 0.3
 DEFAULT_CUTOFF = "2018-07-01"  # 原型阶段的截止日（Ars 玩家数表的日期）
 
 # query 是请求口径，表示这次请求是怎么筛评测的。每次请求写一行，同时存评测总数和其中的好评数。
