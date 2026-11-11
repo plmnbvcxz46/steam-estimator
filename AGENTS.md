@@ -8,7 +8,7 @@
 
 ## 约定
 
-- Python 3.10+，依赖写入 `requirements.txt`。
+- Python 3.11+，依赖写入 `requirements.txt`。
 - 清洗不静默丢行，一律写日志。
 - 爬虫按站点限速；续传靠主键跳过已有行，空结果记 `raw_crawl_log`，不另设缓存与检查点；不爬 SteamDB。
 - 密钥只放 `.env`；`data/steam.db` 不入 git。

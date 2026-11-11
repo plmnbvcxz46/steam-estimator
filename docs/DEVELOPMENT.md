@@ -87,7 +87,7 @@ figures/                                 # 生成的图，不入 git；dataflow.
 docs/                                    # 设计、推导、devlog
 ```
 
-技术栈：Python 3.10+、`requests`、`pandas`、`numpy`、`scipy`、`scikit-learn`、SQLite、`matplotlib`、Plotly。
+技术栈：Python 3.11+、`requests`、`pandas`、`numpy`、`scipy`、`scikit-learn`、SQLite、`matplotlib`、Plotly。
 
 ### 2.2 数据表
 
@@ -148,6 +148,9 @@ docs/                                    # 设计、推导、devlog
 
 - 按站点限速；请求设超时，遇到限流或服务器错误时退避重试。
 - 采集结果直接写入 `raw_*` 表，中断后重跑同一命令即可从断点继续，已有数据不重复请求。
+- 评测计数请求量大（每款 15 次），可以几路同时发请求：`python -m crawler.sources.review_counts --workers 路数`。发请求由线程池做，写库只由主线程做；限速对所有线程合计。
+- 已从商店下架的游戏，评测接口返回为空，在 `raw_crawl_log` 记“未收录”，不写数据行，重跑时不再请求。
+- 几台机器分头采集：`python -m crawler.multi_machine split 段数` 把没爬完的游戏切段并为其余机器各生成一个只含游戏名单的小数据库，各机器照常运行采集器；跑完后用 `python -m crawler.multi_machine merge 文件` 把结果并回主库。只合并 `raw_*` 表。
 - 评测只取两类数据：限定在截止日前的计数（汇总数，不翻页），以及少量抽样评测。抽样不是严格的随机样本。
 - 抽样评测里的 `playtime_forever` 是采集当天的总时长，包含截止日之后的游玩，不用于任何计算。
 - 在线人数只用截止日所在月之前的整月。
