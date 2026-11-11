@@ -12,8 +12,12 @@ cleaned 表是派生数据：每次运行都整张表重建，结果只取决于
 """
 
 import logging
+import sqlite3
 from collections import Counter
 from datetime import datetime
+
+from common.log import setup_logging
+from common.paths import DB_PATH
 
 logger = logging.getLogger(__name__)
 
@@ -151,6 +155,14 @@ def build_cleaned_games(conn):
 
 def main():
     """命令行入口：python -m pipeline.games"""
+    setup_logging("games.log")
+
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        build_cleaned_games(conn)
+    finally:
+        # 不管中途有没有出错，都把数据库连接关掉
+        conn.close()
 
 
 if __name__ == "__main__":
