@@ -111,7 +111,7 @@ docs/                                    # 设计、推导、devlog
 
 | 表 | 主键 | 字段 |
 | --- | --- | --- |
-| `cleaned_games` | `appid` | `name`、`release_date`、`release_date_source`（商店 / 第一条评测）、`genres` |
+| `cleaned_games` | `appid` | 只含游戏，一款一行：`name`、`release_date`、`release_date_source`（`store` 商店 / 第一条评测，后者待评测数据齐备后实现）、`genres`（用 `|` 连接，已去掉状态词）。发行日解析不了的游戏不写入，原文记日志 |
 | `cleaned_prices` | `(appid, date)` | 把价格变动记录按天铺开，每款游戏每天一行：`base_price_usd`、`discount_percent`、`price_source`（`history` / `current`） |
 | `cleaned_charts_monthly` | `(appid, month)` | `avg_players` |
 | `cleaned_samples` | `sample_id` | 样本：`appid`、`cutoff_date`、`split`（`train` / `calib` / `query`）、`truth_value`（`query` 为空）<br>评测：`total_reviews`、`positive_rate`、`steam_purchase_ratio`、`p_post`、`share_<语言>`、`playtime_median_hrs`、`playtime_mean_hrs`、`sample_n`（抽样条数，用于设定时长可靠性阈值）<br>价格：`price_at_cutoff_usd`、`price_source`、`frac_time_cut75`（深度折扣时间占比）、`avg_price_usd`（截止日前按天平均的实付价格）<br>其他：`game_age_years`、`genre_<类型>`、`charts_total_hours`（$H$） |
@@ -160,6 +160,8 @@ docs/                                    # 设计、推导、devlog
 - 只按输入侧条件筛选，不按 $k$ 或真值筛选。排除免费、非游戏、零评测、重复、上架晚于截止日的样本。
 - 是否免费按截止日当时判断：历史价格里有截止日的价格时，原价为 0 即免费；查不到时退回用商店信息里当前的 `is_free`。
 - 抢先体验游戏用第一条评测的日期作为上架日。
+- 商店信息是采集当天的状态。会随时间变的内容不能当作截止日的情况，要换用带时间的来源：是否免费看历史价格，是否在抢先体验看发行日与评测日期。因此类型里的 `Early Access`、`Free To Play` 两个状态词在清洗时去掉。
+- 清洗结果只保留能用的行：发行日解析不了的游戏不写入 `cleaned_games`，原文和按写法归类的统计写入日志，补全解析规则后重跑即可纳入。
 - 近年真值表人工筛选时，只收录评测数足够、截止日不早于 Steam 评测系统上线（2013-11）的游戏；`pipeline` 再校验一次，不符合的剔除并写日志。
 - 历史价格缺失的游戏不删除：用当前原价兜底，深度折扣占比和平均实付价格留空，并标明价格来源。
 - 价格特征只从第一条价格记录算起，之前的价格未知，不假设为原价。相邻两条记录隔得过久的折扣多半是漏记了“恢复原价”，需要截断或标记；阈值等看过实际的折扣时长分布再定。
