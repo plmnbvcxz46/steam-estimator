@@ -1,4 +1,14 @@
-from pipeline.games import parse_release_date
+from pipeline.games import clean_genres, parse_release_date
+
+
+def test_clean_genres_drops_status_words():
+    # 取自真实数据：791390 带 Early Access，488910 带 Free To Play
+    assert clean_genres("Casual|Indie|RPG|Early Access") == "Casual|Indie|RPG"
+    assert clean_genres("Free To Play|Indie|Strategy") == "Indie|Strategy"
+
+
+def test_clean_genres_keeps_real_genres_unchanged():
+    assert clean_genres("Action|Adventure|Indie") == "Action|Adventure|Indie"
 
 
 def test_parse_release_date():

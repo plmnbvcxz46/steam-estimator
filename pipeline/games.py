@@ -55,6 +55,11 @@ def parse_release_date(text):
 
 def clean_genres(text):
     """去掉 genres 里不是类型的词。输入输出都是用 | 连接的字符串。"""
+    kept = []
+    for genre in text.split("|"):
+        if genre not in NOT_GENRES:
+            kept.append(genre)
+    return "|".join(kept)
 
 
 def build_cleaned_games(conn):
