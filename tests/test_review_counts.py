@@ -125,3 +125,18 @@ def test_crawl_failure_is_retried_next_time(monkeypatch):
     review_counts.crawl_review_counts(conn, [220], "2018-07-01")
     assert fake.calls == [(0, ("all",))]
     assert read_counts(conn)["steam_purchase"] == (36595, 35480)
+
+
+def test_crawl_with_several_workers_writes_same_rows(monkeypatch):
+    # 4 路并行：请求由几个线程同时发，结果应该和一个一个发完全一样
+    conn = sqlite3.connect(":memory:")
+    fake = fake_get_json_factory()
+    monkeypatch.setattr(review_counts, "get_json", fake)
+
+    review_counts.crawl_review_counts(conn, [220], "2018-07-01", workers=4)
+
+    counts = read_counts(conn)
+    assert len(counts) == REQUEST_COUNT
+    assert counts["steam_purchase"] == (36595, 35480)
+    assert counts["lang:schinese"] == (1000, 900)  # 结果没有和别的请求串行
+    assert len(fake.calls) == REQUEST_COUNT

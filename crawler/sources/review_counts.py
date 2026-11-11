@@ -3,14 +3,19 @@
 训练集的“评测数 >= 500”门槛、好评率、Steam 内购买占比、各语言占比都从这里来。
 只要汇总数，不要评测正文，一次请求就能拿到，不用翻页。
 
-整体流程（照 appdetails.py 的样子）：
-    main -> crawl_review_counts -> fetch_summary -> build_input_json -> get_json -> parse_review_summary
+整体流程：
+    main -> crawl_review_counts
+              |- pending_jobs   列出还没做的任务
+              |- fetch_job      做一个任务：发一次请求（线程池里的线程做，可以几路同时）
+              |    -> fetch_summary -> build_input_json -> get_json -> parse_review_summary
+              |- save_result    把一个任务的结果写进数据库（只由主线程做）
 """
 
 import argparse
 import json
 import logging
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 
 from common.clock import now_utc_str
@@ -24,17 +29,22 @@ logger = logging.getLogger(__name__)
 
 SOURCE = "review_counts"  # 写进 raw_crawl_log 的数据源名
 URL = "https://api.steampowered.com/IUserReviewsService/GetAppReviews/v1/"
-# 两次请求之间至少隔几秒（从上一次发出时算起）。
-# 实测一次请求本身要 0.7 到 0.9 秒，所以 0.3 实际上几乎不用等，速度约每秒 1 次；
-# 留着它是防止哪天接口变快后请求发得过密。实测记录见 docs/devlog.md
-MIN_INTERVAL = 0.3
+# 相邻两次请求的发出时刻至少隔几秒，所有线程合在一起算：0.1 就是每秒最多 10 次。
+# 单线程时碰不到这个上限：一次请求本身要 0.7 到 0.9 秒，约每秒 1 次。
+# 实测 8 路并行约每秒 12 次没有被限速，记录见 docs/devlog.md
+MIN_INTERVAL = 0.1
+PROGRESS_EVERY = 300  # 每完成多少次请求打一行进度
 DEFAULT_CUTOFF = "2018-07-01"  # 原型阶段的截止日（Ars 玩家数表的日期）
 
 # query 是请求口径，表示这次请求是怎么筛评测的。每次请求写一行，同时存评测总数和其中的好评数。
 # 它是我们自己起的标签，只存进表和日志，不发给 Steam；用英文，方便写 SQL 和以后转成列名。
 QUERY_ALL = "all"  # 截止日前所有语言的评测
-QUERY_STEAM_PURCHASE = "steam_purchase"  # 只算在 Steam 里买的游戏的评测（purchase_type=0）
-QUERY_LANGUAGE_PREFIX = "lang:"  # 各语言的标签 = 前缀 + Steam 语言代码，如 "lang:schinese"
+QUERY_STEAM_PURCHASE = (
+    "steam_purchase"  # 只算在 Steam 里买的游戏的评测（purchase_type=0）
+)
+QUERY_LANGUAGE_PREFIX = (
+    "lang:"  # 各语言的标签 = 前缀 + Steam 语言代码，如 "lang:schinese"
+)
 # 后面再加： "post_policy"（政策日之后的评测），等近年真值表导入后再做
 
 # Steam 的语言代码。接口返回的是所列语言加在一起的数，所以每种语言要单独发一次请求。
@@ -153,61 +163,126 @@ def make_request_key(appid, cutoff_date, query):
     return f"{appid}|{cutoff_date}|{query}"
 
 
-def crawl_review_counts(conn, appids, cutoff_date=DEFAULT_CUTOFF):
-    """逐个采集 appids 在 cutoff_date 的评测计数，写入 raw_review_counts，并在 raw_crawl_log 记结局。
+def pending_jobs(conn, appids, cutoff_date):
+    """列出还没做的任务，返回一个列表。每一项是一个任务，也就是一次请求要用的全部参数：
+        {"appid": 220, "cutoff_date": "2018-07-01",
+         "query": "lang:schinese", "purchase_type": 1, "languages": ("schinese",)}
+    一个游戏有 15 种口径，所以会列出 15 个任务。
 
-    已有定论的请求会跳过，所以中断后重跑同一条命令即可从断点继续。
+    已有定论的请求不列进来，所以中断后重跑会从断点继续。
+    """
+    done = crawl_log.done_keys(conn, SOURCE)
+    jobs = []
+    for appid in appids:
+        for request in REQUESTS:
+            key = make_request_key(appid, cutoff_date, request["query"])
+            if key not in done:
+                jobs.append(
+                    {
+                        "appid": appid,
+                        "cutoff_date": cutoff_date,
+                        "query": request["query"],
+                        "purchase_type": request["purchase_type"],
+                        "languages": request["languages"],
+                    }
+                )
+    return jobs
+
+
+def fetch_job(job):
+    """做一个任务：发一次请求，返回结果（dict）。失败不抛异常，原因写在 status 里。
+
+    结果里带着任务自己的身份（appid、cutoff_date、query），拿到结果就知道它是谁的。
+    status 是 200、get_json 给的失败原因（如 "timeout"、429），或 "parse_error"；
+    只有 200 时才有 total 和 positive。
+
+    这个函数会在线程池的线程里运行，所以只联网、不碰数据库：
+    sqlite3 的连接只能在创建它的线程里用，写库统一留给主线程。
+    """
+    appid = job["appid"]
+    cutoff_date = job["cutoff_date"]
+    query = job["query"]
+    result = {"appid": appid, "cutoff_date": cutoff_date, "query": query}
+
+    try:
+        total, positive = fetch_summary(
+            appid, cutoff_date, job["purchase_type"], job["languages"]
+        )
+    except CrawlError as err:
+        logger.warning("appid=%d 口径=%s 请求失败: %s", appid, query, err)
+        result["status"] = err.status
+        return result
+    except (KeyError, TypeError) as err:
+        # 接口返回缺字段或结构变了：记下原因，跳过这一次，不让整批崩掉
+        logger.warning(
+            "appid=%d 口径=%s 解析失败，缺少或错误的字段: %r", appid, query, err
+        )
+        result["status"] = "parse_error"
+        return result
+
+    result["status"] = 200
+    result["total"] = total
+    result["positive"] = positive
+    return result
+
+
+def save_result(conn, result):
+    """把一个任务的结果写进数据库：成功就写数据行，不管成败都在 raw_crawl_log 记结局。"""
+    key = make_request_key(result["appid"], result["cutoff_date"], result["query"])
+    # 一个请求一个事务：数据行和日志要么都写入，要么都不写
+    with conn:
+        if result["status"] == 200:
+            row = {
+                "appid": result["appid"],
+                "cutoff_date": result["cutoff_date"],
+                "query": result["query"],
+                "total": result["total"],
+                "positive": result["positive"],
+                "fetched_at": now_utc_str(),
+            }
+            conn.execute(INSERT_SQL, row)
+        crawl_log.record(conn, SOURCE, key, result["status"])
+
+
+def crawl_review_counts(conn, appids, cutoff_date=DEFAULT_CUTOFF, workers=1):
+    """采集 appids 在 cutoff_date 的评测计数，写入 raw_review_counts，并在 raw_crawl_log 记结局。
+
+    workers 是同时发请求的线程数；1 就是一个一个来。
+    这里只负责调度：列任务、交给线程池、把结果一个个存下来。
     """
     crawl_log.ensure_table(conn)
     conn.execute(CREATE_TABLE_SQL)
 
-    done = crawl_log.done_keys(conn, SOURCE)
-    logger.info("共 %d 个游戏，截止日 %s", len(appids), cutoff_date)
+    jobs = pending_jobs(conn, appids, cutoff_date)
+    logger.info(
+        "共 %d 个游戏，截止日 %s，待发请求 %d 次，%d 路并行",
+        len(appids),
+        cutoff_date,
+        len(jobs),
+        workers,
+    )
 
-    for i, appid in enumerate(appids, start=1):
-        for request in REQUESTS:
-            query = request["query"]
-            key = make_request_key(appid, cutoff_date, query)
-            if key in done:
-                continue
-
-            try:
-                total, positive = fetch_summary(
-                    appid, cutoff_date, request["purchase_type"], request["languages"]
-                )
-            except CrawlError as err:
-                logger.warning("appid=%d 口径=%s 请求失败: %s", appid, query, err)
-                with conn:
-                    crawl_log.record(conn, SOURCE, key, err.status)
-                continue
-            except (KeyError, TypeError) as err:
-                # 接口返回缺字段或结构变了：记下原因，跳过这一次，不让整批崩掉
-                logger.warning(
-                    "appid=%d 口径=%s 解析失败，缺少或错误的字段: %r", appid, query, err
-                )
-                with conn:
-                    crawl_log.record(conn, SOURCE, key, "parse_error")
-                continue
-
-            row = {
-                "appid": appid,
-                "cutoff_date": cutoff_date,
-                "query": query,
-                "total": total,
-                "positive": positive,
-                "fetched_at": now_utc_str(),
-            }
-            # 一个请求一个事务：数据行和日志要么都写入，要么都不写
-            with conn:
-                conn.execute(INSERT_SQL, row)
-                crawl_log.record(conn, SOURCE, key, 200)
-
-        if i % 20 == 0:
-            logger.info("进度 %d/%d", i, len(appids))
+    # 线程池：里面有 workers 个线程，各自从 jobs 里领任务去做 fetch_job。
+    # 等网络回信的时间占了一次请求的绝大部分，几个线程同时等，总时间就省下来了
+    pool = ThreadPoolExecutor(max_workers=workers)
+    try:
+        # pool.map(fetch_job, jobs) 的意思是“对 jobs 里的每一项调用 fetch_job”，
+        # 只不过是由池里的线程去调。结果按 jobs 的顺序一个个交回来，
+        # 哪个还没做完，主线程就在这一行等它
+        done_count = 0
+        for result in pool.map(fetch_job, jobs):
+            save_result(conn, result)
+            done_count += 1
+            if done_count % PROGRESS_EVERY == 0:
+                logger.info("进度 %d/%d 次请求", done_count, len(jobs))
+    finally:
+        # 正常结束或按 Ctrl+C 都会走到这里。cancel_futures=True 把还没开始的任务全部取消，
+        # 否则线程池会坚持把剩下的十几万次请求发完才肯退出
+        pool.shutdown(wait=True, cancel_futures=True)
 
 
 def main():
-    """命令行入口：python -m crawler.sources.review_counts [数量] [--cutoff 日期]"""
+    """命令行入口：python -m crawler.sources.review_counts [数量] [--cutoff 日期] [--workers 路数]"""
     parser = argparse.ArgumentParser(description="采集 Steam 评测计数")
     parser.add_argument(
         "limit",
@@ -219,6 +294,12 @@ def main():
     parser.add_argument(
         "--cutoff", default=DEFAULT_CUTOFF, help="截止日，格式 YYYY-MM-DD"
     )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help="同时发请求的线程数，默认 1；速度上限由 MIN_INTERVAL 决定，超过 10 没有意义",
+    )
     args = parser.parse_args()
 
     setup_logging("review_counts.log")
@@ -227,7 +308,9 @@ def main():
     # 以后“评测数 >= 500”的筛选属于 pipeline，不在这里做。
     conn = sqlite3.connect(DB_PATH)
     try:
-        crawl_review_counts(conn, pick_appids(conn, args.limit), args.cutoff)
+        crawl_review_counts(
+            conn, pick_appids(conn, args.limit), args.cutoff, args.workers
+        )
     finally:
         conn.close()
 
