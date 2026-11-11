@@ -1,6 +1,7 @@
 """所有采集模块共用的请求函数：限速、超时、重试与退避。"""
 
 import logging
+import threading
 import time
 from urllib.parse import urlparse
 
@@ -12,7 +13,10 @@ TIMEOUT = 15  # 单次请求最多等多少秒
 MAX_RETRIES = 4  # 第一次失败后最多再试几次
 BACKOFF_BASE = 2  # 退避：第 n 次重试前等 2**n 秒（2、4、8、16）
 
-_last_request_time = {}  # 主机名 -> 上次请求的时刻
+_next_slot = {}  # 主机名 -> 最近一次领出去的“发出时刻”
+# 多个线程会同时来领发出时刻。锁保证一次只有一个线程在领，
+# 否则两个线程可能读到同一个旧时刻，领到同一个号，间隔就不准了
+_slot_lock = threading.Lock()
 
 # 整个程序共用一个会话：它会把到同一个网站的连接留着复用，省掉每次请求前的握手。
 # 实测评测接口：每次新建连接约 3.4 秒一次，复用后约 1 秒一次。
@@ -29,14 +33,27 @@ class CrawlError(Exception):
 
 
 def _wait_for_turn(url, min_interval):
-    """同一个网站的两次请求之间至少隔 min_interval 秒。按照网站划分，不强睡:)"""
+    """同一个网站相邻两次请求的发出时刻至少隔 min_interval 秒。按网站分别计算。
+
+    做法像排队领号：每次请求先领一个发出时刻，比上一个号晚 min_interval；
+    领完号再等到那个时刻。几个线程同时来，也是一个接一个往后排，
+    所以 min_interval 管的是所有线程加起来的速度（0.1 就是每秒最多 10 次）。
+    """
     host = urlparse(url).netloc
-    last = _last_request_time.get(host)
-    if last is not None:
-        wait = min_interval - (time.monotonic() - last)
-        if wait > 0:
-            time.sleep(wait)
-    _last_request_time[host] = time.monotonic()
+    with _slot_lock:
+        now = time.monotonic()
+        last_slot = _next_slot.get(host)
+        if last_slot is None:
+            my_slot = now  # 这个网站的第一次请求，不用等
+        else:
+            # 上一个号已经过去很久就立刻发，否则排在它后面
+            my_slot = max(now, last_slot + min_interval)
+        _next_slot[host] = my_slot
+
+    # 等待放在锁外面：自己睡觉时，别的线程还能继续领号
+    wait = my_slot - now
+    if wait > 0:
+        time.sleep(wait)
 
 
 def get_json(url, params=None, min_interval=1.5):

@@ -68,3 +68,17 @@ def test_gives_up_after_max_retries(monkeypatch):
         http.get_json("https://example.com/a")
     assert err.value.status == 500
     assert len(fake_get.calls) == http.MAX_RETRIES + 1
+
+
+def test_wait_for_turn_queues_requests(monkeypatch):
+    # 时钟停在 100 秒不动，相当于三个请求同时到达（多线程时就是这种情况）。
+    # 间隔 1 秒：第一个不等，第二个等 1 秒，第三个要排在第二个后面，等 2 秒
+    sleeps = []
+    monkeypatch.setattr(http, "_next_slot", {})
+    monkeypatch.setattr(http.time, "monotonic", lambda: 100.0)
+    monkeypatch.setattr(http.time, "sleep", sleeps.append)
+
+    for _ in range(3):
+        http._wait_for_turn("https://example.com/a", 1.0)
+
+    assert sleeps == [1.0, 2.0]
