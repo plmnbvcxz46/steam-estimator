@@ -6,12 +6,14 @@ import time
 from urllib.parse import urlparse
 
 import requests
+from requests.adapters import HTTPAdapter
 
 logger = logging.getLogger(__name__)
 
 TIMEOUT = 15  # 单次请求最多等多少秒
 MAX_RETRIES = 4  # 第一次失败后最多再试几次
 BACKOFF_BASE = 2  # 退避：第 n 次重试前等 2**n 秒（2、4、8、16）
+POOL_SIZE = 32  # 会话最多留着多少条连接复用；要不小于并行的线程数
 
 _next_slot = {}  # 主机名 -> 最近一次领出去的“发出时刻”
 # 多个线程会同时来领发出时刻。锁保证一次只有一个线程在领，
@@ -21,6 +23,9 @@ _slot_lock = threading.Lock()
 # 整个程序共用一个会话：它会把到同一个网站的连接留着复用，省掉每次请求前的握手。
 # 实测评测接口：每次新建连接约 3.4 秒一次，复用后约 1 秒一次。
 _session = requests.Session()
+# 会话默认只留 10 条连接。线程数超过 10 时，多出来的连接用完就被丢掉，
+# 下次又得重新握手（本机一次握手要 3 秒左右），并行就白开了。所以把上限调大
+_session.mount("https://", HTTPAdapter(pool_maxsize=POOL_SIZE))
 
 
 class CrawlError(Exception):

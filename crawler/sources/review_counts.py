@@ -29,10 +29,10 @@ logger = logging.getLogger(__name__)
 
 SOURCE = "review_counts"  # 写进 raw_crawl_log 的数据源名
 URL = "https://api.steampowered.com/IUserReviewsService/GetAppReviews/v1/"
-# 相邻两次请求的发出时刻至少隔几秒，所有线程合在一起算：0.1 就是每秒最多 10 次。
-# 单线程时碰不到这个上限：一次请求本身要 0.7 到 0.9 秒，约每秒 1 次。
-# 实测 8 路并行约每秒 12 次没有被限速，记录见 docs/devlog.md
-MIN_INTERVAL = 0.1
+# 相邻两次请求的发出时刻至少隔几秒，所有线程合在一起算：0.05 就是每秒最多 20 次。
+# 实际速度还取决于路数和单次请求的耗时：本机一次约 0.8 秒，要 20 路以上才到得了上限；
+# 阿里云一次约 0.2 秒，16 路就够。实测记录见 docs/devlog.md
+MIN_INTERVAL = 0.05
 PROGRESS_EVERY = 300  # 每完成多少次请求打一行进度
 DEFAULT_CUTOFF = "2018-07-01"  # 原型阶段的截止日（Ars 玩家数表的日期）
 
@@ -313,7 +313,7 @@ def main():
         "--workers",
         type=int,
         default=1,
-        help="同时发请求的线程数，默认 1；速度上限由 MIN_INTERVAL 决定，超过 10 没有意义",
+        help="同时发请求的线程数，默认 1；速度上限由 MIN_INTERVAL 决定；不要超过 crawler.http.POOL_SIZE",
     )
     args = parser.parse_args()
 
