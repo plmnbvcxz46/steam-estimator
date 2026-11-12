@@ -47,7 +47,9 @@ CREATE TABLE IF NOT EXISTS raw_itad_ids (
 )
 """
 
-# 一次价格变动一行，只记变动之后的状态；这个状态一直持续到下一行的 changed_at
+# 一次价格变动一行，只记变动之后的状态；这个状态一直持续到下一行的 changed_at。
+# 主键带上 regular 和 price：有的游戏 ITAD 同时跟踪两个 Steam 购买项（如普通版和另一个包），
+# 同一时刻会有两条原价不同的记录，接口又不给是哪个购买项。raw 层两条都留，选哪条到清洗时再定
 CREATE_HISTORY_SQL = """
 CREATE TABLE IF NOT EXISTS raw_price_history (
     appid      INTEGER NOT NULL,
@@ -58,7 +60,7 @@ CREATE TABLE IF NOT EXISTS raw_price_history (
     regular    REAL NOT NULL,
     cut        INTEGER NOT NULL,
     fetched_at TEXT NOT NULL,
-    PRIMARY KEY (appid, country, changed_at)
+    PRIMARY KEY (appid, country, changed_at, regular, price)
 )
 """
 
@@ -197,7 +199,7 @@ def save_history(conn, appid, rows):
     """把一款游戏的价格历史写进 raw_price_history，日志一起记，放在同一个事务里。
 
     重采同一款时整段历史换成新的：先删旧的再写，免得新旧混在一起。
-    用普通 INSERT 而不是 INSERT OR REPLACE：同一时刻要是有两条记录，
+    用普通 INSERT 而不是 INSERT OR REPLACE：要是有两条记录完全一样（时刻、原价、实付价都相同），
     会因主键冲突报错，而不是悄悄只留下一条。
     """
     fetched_at = now_utc_str()
@@ -251,7 +253,7 @@ def crawl_price_history(conn, appids, api_key):
                 crawl_log.record(conn, SOURCE_HISTORY, appid, err.status)
             continue
         except (KeyError, TypeError, ValueError, sqlite3.IntegrityError) as err:
-            # 缺字段、结构变了、同一时刻两条记录：记下原因，跳过这款，不让整次采集崩掉
+            # 缺字段、结构变了、两条记录完全一样：记下原因，跳过这款，不让整次采集崩掉
             logger.warning("appid=%d 解析失败: %r", appid, err)
             with conn:
                 crawl_log.record(conn, SOURCE_HISTORY, appid, "parse_error")

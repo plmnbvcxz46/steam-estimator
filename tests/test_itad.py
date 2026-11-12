@@ -158,3 +158,19 @@ def test_history_resumes_without_repeating(monkeypatch):
     itad.crawl_price_history(conn, [220, 440], "测试密钥")  # 重跑：220 已有定论，只该问 440
 
     assert fake.calls == [KNOWN_IDS[220], KNOWN_IDS[440]]
+
+
+def test_history_keeps_two_purchase_options_at_same_moment(monkeypatch):
+    # 真实情况（appid 40700）：同一时刻两个购买项一起打折，原价 14.99 和 4.99，两条都要留下
+    conn = history_conn()
+    two_options = [
+        entry("2021-02-11T21:56:18+01:00", 5.99, 14.99, 60),
+        entry("2021-02-11T21:56:18+01:00", 1.99, 4.99, 60),
+    ]
+    monkeypatch.setattr(itad, "get_json", fake_get_json_factory({KNOWN_IDS[220]: two_options}))
+
+    itad.crawl_price_history(conn, [220], "测试密钥")
+
+    rows = conn.execute("SELECT price, regular FROM raw_price_history ORDER BY regular").fetchall()
+    assert rows == [(1.99, 4.99), (5.99, 14.99)]
+    assert history_statuses(conn) == {"220": "200"}
