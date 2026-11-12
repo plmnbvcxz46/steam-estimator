@@ -63,11 +63,23 @@ def _wait_for_turn(url, min_interval):
 
 def get_json(url, params=None, min_interval=1.5):
     """GET 一个返回 JSON 的接口，成功返回解析后的数据，最终失败抛 CrawlError。"""
+    return _request_json("GET", url, params, None, min_interval)
+
+
+def post_json(url, body, params=None, min_interval=1.5):
+    """POST 一个返回 JSON 的接口，body 会编码成 JSON 放进请求体。
+    限速、重试和 get_json 完全一样。"""
+    return _request_json("POST", url, params, body, min_interval)
+
+
+def _request_json(method, url, params, body, min_interval):
+    """GET 和 POST 共用的部分：排队限速、发请求、判断要不要重试。"""
     for attempt in range(MAX_RETRIES + 1):
         _wait_for_turn(url, min_interval)
 
         try:
-            resp = _session.get(url, params=params, timeout=TIMEOUT)
+            # body 为 None 时 requests 不发请求体，所以 GET 也能走这一行
+            resp = _session.request(method, url, params=params, json=body, timeout=TIMEOUT)
         except requests.Timeout:
             status = "timeout"
         except requests.ConnectionError:
