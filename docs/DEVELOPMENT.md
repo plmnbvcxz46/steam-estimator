@@ -98,7 +98,9 @@ docs/                                    # 设计、推导、devlog
 | 表 | 主键 | 字段 |
 | --- | --- | --- |
 | `raw_ars_players_2018` | `appid` | `title`、`players` |
-| `raw_appdetails` | `appid` | `name`、`app_type`、`is_free`、`release_date`（商店页原文，如 `Feb 26, 2016`，清洗时再解析）、`initial_price_usd`（当前原价）、`genres`（用 `|` 连接） |
+| `raw_store_items` | `appid` | `name`、`app_type`（接口给的数字代码：0 是游戏，6 是软件）、`is_free`、`release_ts`（在 Steam 上架的时刻，Unix 秒；未定档时为空）、`is_early_access`（采集当天是否在抢先体验）、`initial_price_usd`（当前原价；取购买项里第一个单独的包，不取捆绑包；免费或已停售时为空） |
+| `raw_store_tags` | `(appid, tagid)` | 一款游戏的一个标签一行，每款最多取权重最高的 20 个：`weight`（权重，打这个标签的人越多越大）、`position`（按权重从高到低排第几，从 1 开始） |
+| `raw_tag_names` | `tagid` | `name`（标签的英文名） |
 | `raw_review_counts` | `(appid, cutoff_date, query)` | `total`（评测数）、`positive`（其中好评数）；`query` 为请求口径的英文标签：`all`（全部）、`steam_purchase`（Steam 内购买）、`post_policy`（政策后）、`lang:<Steam 语言代码>`（某语言）；一次请求一行 |
 | `raw_review_sample` | `(appid, cutoff_date, review_id)` | `created_at`、`playtime_at_review_min`、`playtime_forever_min`（只存档） |
 | `raw_charts_monthly` | `(appid, month)` | `avg_players` |
@@ -111,10 +113,10 @@ docs/                                    # 设计、推导、devlog
 
 | 表 | 主键 | 字段 |
 | --- | --- | --- |
-| `cleaned_games` | `appid` | 只含游戏，一款一行：`name`、`release_date`、`release_date_source`（`store` 商店 / 第一条评测，后者待评测数据齐备后实现）、`genres`（用 `|` 连接，已去掉状态词）。发行日解析不了的游戏不写入，原文记日志 |
+| `cleaned_games` | `appid` | 只含游戏，一款一行：`name`、`release_date`、`release_date_source`（`store` 商店 / 第一条评测，后者待评测数据齐备后实现）、`tags`（标签名按权重从高到低用 `|` 连接，已去掉状态词）。没有发行日的游戏不写入，记日志 |
 | `cleaned_prices` | `(appid, date)` | 把价格变动记录按天铺开，每款游戏每天一行：`base_price_usd`、`discount_percent`、`price_source`（`history` / `current`） |
 | `cleaned_charts_monthly` | `(appid, month)` | `avg_players` |
-| `cleaned_samples` | `sample_id` | 样本：`appid`、`cutoff_date`、`split`（`train` / `calib` / `query`）、`truth_value`（`query` 为空）<br>评测：`total_reviews`、`positive_rate`、`steam_purchase_ratio`、`p_post`、`share_<语言>`、`playtime_median_hrs`、`playtime_mean_hrs`、`sample_n`（抽样条数，用于设定时长可靠性阈值）<br>价格：`price_at_cutoff_usd`、`price_source`、`frac_time_cut75`（深度折扣时间占比）、`avg_price_usd`（截止日前按天平均的实付价格）<br>其他：`game_age_years`、`genre_<类型>`、`charts_total_hours`（$H$） |
+| `cleaned_samples` | `sample_id` | 样本：`appid`、`cutoff_date`、`split`（`train` / `calib` / `query`）、`truth_value`（`query` 为空）<br>评测：`total_reviews`、`positive_rate`、`steam_purchase_ratio`、`p_post`、`share_<语言>`、`playtime_median_hrs`、`playtime_mean_hrs`、`sample_n`（抽样条数，用于设定时长可靠性阈值）<br>价格：`price_at_cutoff_usd`、`price_source`、`frac_time_cut75`（深度折扣时间占比）、`avg_price_usd`（截止日前按天平均的实付价格）<br>其他：`game_age_years`、`tag_<标签>`、`charts_total_hours`（$H$） |
 
 **result：分析结果，`viz` 只读。**
 
@@ -136,7 +138,7 @@ docs/                                    # 设计、推导、devlog
 
 | 数据 | 来源 | 用途 |
 | --- | --- | --- |
-| 商店信息 | Steam `appdetails` 接口（只能取当前价格） | 类型、发售日、是否免费、当前原价 |
+| 商店信息 | Steam `IStoreBrowseService/GetItems` 接口（一次可查多款；只能取当前价格）；标签名来自 `IStoreService/GetTagList` | 是不是游戏、标签、发售日、是否免费、当前原价 |
 | 评测计数 | Steam `GetAppReviews` 接口的汇总数 | 截止日前的评测总数、好评、Steam 内购买、政策后、各语言，均为精确值 |
 | 评测抽样 | Steam `GetAppReviews` 接口 | 评测者时长中位数，供信号 A 的特征和信号 B |
 | 月度在线人数 | SteamCharts | 信号 B |
@@ -149,6 +151,7 @@ docs/                                    # 设计、推导、devlog
 - 按站点限速；请求设超时，遇到限流或服务器错误时退避重试。
 - 采集结果直接写入 `raw_*` 表，中断后重跑同一命令即可从断点继续，已有数据不重复请求。
 - 评测计数请求量大（每款 15 次），可以几路同时发请求：`python -m crawler.sources.review_counts --workers 路数`。发请求由线程池做，写库只由主线程做；限速对所有线程合计。
+- 商店信息用批量接口采集：一次请求查 200 款（实测 400 款会被拒绝），全部一万三千多款约 70 次请求。原先用的 `appdetails` 接口一次只能查一款，且按 IP 限流（实测约每 5 分钟 200 次），全量要 5 个多小时，已停用。
 - 已从商店下架的游戏，评测接口返回为空，在 `raw_crawl_log` 记“未收录”，不写数据行，重跑时不再请求。
 - 几台机器分头采集：`python -m crawler.multi_machine split 段数` 把没爬完的游戏切段并为其余机器各生成一个只含游戏名单的小数据库，各机器照常运行采集器；跑完后用 `python -m crawler.multi_machine merge 文件` 把结果并回主库。只合并 `raw_*` 表。
 - 评测只取两类数据：限定在截止日前的计数（汇总数，不翻页），以及少量抽样评测。抽样不是严格的随机样本。
@@ -163,7 +166,8 @@ docs/                                    # 设计、推导、devlog
 - 只按输入侧条件筛选，不按 $k$ 或真值筛选。排除免费、非游戏、零评测、重复、上架晚于截止日的样本。
 - 是否免费按截止日当时判断：历史价格里有截止日的价格时，原价为 0 即免费；查不到时退回用商店信息里当前的 `is_free`。
 - 抢先体验游戏用第一条评测的日期作为上架日。
-- 商店信息是采集当天的状态。会随时间变的内容不能当作截止日的情况，要换用带时间的来源：是否免费看历史价格，是否在抢先体验看发行日与评测日期。因此类型里的 `Early Access`、`Free To Play` 两个状态词在清洗时去掉。
+- 商店信息是采集当天的状态。会随时间变的内容不能当作截止日的情况，要换用带时间的来源：是否免费看历史价格，是否在抢先体验看发行日与评测日期。因此标签里的 `Early Access`、`Free to Play` 这类状态词在清洗时去掉。
+- 游戏的分类用标签，不用开发商填的类型（genres）。标签由开发商先设、玩家投票修正，Steam 自己的推荐和“类似游戏”也按排名前 20 的标签计算；类型只有十来种，区分度低。标签的权重是采集当天的数，会随时间增长，只用来排序和取前几个，数值本身不作特征。
 - 清洗结果只保留能用的行：发行日解析不了的游戏不写入 `cleaned_games`，原文和按写法归类的统计写入日志，补全解析规则后重跑即可纳入。
 - 近年真值表人工筛选时，只收录评测数足够、截止日不早于 Steam 评测系统上线（2013-11）的游戏；`pipeline` 再校验一次，不符合的剔除并写日志。
 - 历史价格缺失的游戏不删除：用当前原价兜底，深度折扣占比和平均实付价格留空，并标明价格来源。
@@ -177,7 +181,7 @@ docs/                                    # 设计、推导、devlog
 
 信号 A 基于“评测数 $\times k$”估算销量，分为树模型训练与线性校准两步。
 
-第一步，在训练集上用树模型学习对数倍数 $\ln k$。模型输入为全部特征：截止日原价、好评率、类型、游戏年龄、Steam 内购买占比、各语言评测占比、深度折扣占比、平均实付价格、评测者时长中位数的对数等。政策后评测占比在训练集上恒为 0，不作为树模型的输入，只用于第二步校准。模型和特征只在这一步选择，用五折交叉验证。特征重要性也在这一步输出。
+第一步，在训练集上用树模型学习对数倍数 $\ln k$。模型输入为全部特征：截止日原价、好评率、标签、游戏年龄、Steam 内购买占比、各语言评测占比、深度折扣占比、平均实付价格、评测者时长中位数的对数等。政策后评测占比在训练集上恒为 0，不作为树模型的输入，只用于第二步校准。模型和特征只在这一步选择，用五折交叉验证。特征重要性也在这一步输出。
 
 第二步，训练真值是玩家数，与销量口径不同，因此在校准/测试集上（按游戏留一法）对树模型输出做少变量线性校准：
 
