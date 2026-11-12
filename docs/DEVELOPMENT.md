@@ -115,7 +115,7 @@ docs/                                    # 设计、推导、devlog
 | --- | --- | --- |
 | `cleaned_games` | `appid` | 只含游戏，一款一行：`name`、`release_date`（由商店时间戳按美国太平洋时间转成日期）、`release_date_source`（`store` 商店 / 第一条评测，后者待评测数据齐备后实现）、`tags`（标签名按权重从高到低用 `|` 连接，已去掉状态词）。没有发行日的游戏不写入，记日志 |
 | `cleaned_review_counts` | `(appid, cutoff_date)` | 把 `raw_review_counts` 里一款游戏的 15 行（15 个口径）合成一行，存条数不存占比，占比在建样本表时再算：`total_reviews`（评测数）、`positive_reviews`（其中好评数）、`steam_purchase_reviews`（Steam 内购买的评测数）、`reviews_<Steam 语言代码>`（13 种语言各一列，如 `reviews_schinese`）。评测数为 0 的不写入，按个数记日志；某款的口径不足 15 个说明采集没跑完，直接报错 |
-| `cleaned_prices` | `(appid, date)` | 把价格变动记录按天铺开，每款游戏每天一行：`base_price_usd`、`discount_percent`、`price_source`（`history` / `current`） |
+| `cleaned_prices` | `(appid, started_at, regular, price)` | 把价格变动点变成时间段，raw 表一个变动点对应一段，行数相同：`started_at`（变动时刻）、`ended_at`（这款游戏下一个不同变动时刻；最后一段用这款的采集时刻 `fetched_at`）、`regular`（原价）、`price`（实付价）、`cut`（折扣百分比）、`days`（持续天数，可带小数）。不按截止日截取，存完整历史；同一时刻的多条记录都保留，共用同一段时间；不选线、不截断，这些取舍放在建样本表时。不按天铺开：全部游戏铺到采集日约 4900 万行 |
 | `cleaned_charts_monthly` | `(appid, month)` | `avg_players` |
 | `cleaned_samples` | `sample_id` | 样本：`appid`、`cutoff_date`、`split`（`train` / `calib` / `query`）、`truth_value`（`query` 为空）<br>评测：`total_reviews`、`positive_rate`、`steam_purchase_ratio`、`p_post`、`share_<语言>`、`playtime_median_hrs`、`playtime_mean_hrs`、`sample_n`（抽样条数，用于设定时长可靠性阈值）<br>价格：`price_at_cutoff_usd`、`price_source`、`frac_time_cut75`（深度折扣时间占比）、`avg_price_usd`（截止日前按天平均的实付价格）<br>其他：`game_age_years`、`tag_<标签>`、`charts_total_hours`（$H$） |
 
@@ -172,9 +172,9 @@ docs/                                    # 设计、推导、devlog
 - 评测计数清洗只排除评测数为 0 的游戏：截止日前一条评测都没有，$k$ 无从算起。评测数门槛（如不足 10 条）会随交叉验证调整，不放在清洗表，放在建样本表时。
 - 近年真值表人工筛选时，只收录评测数足够、截止日不早于 Steam 评测系统上线（2013-11）的游戏；`pipeline` 再校验一次，不符合的剔除并写日志。
 - 历史价格缺失的游戏不删除：用当前原价兜底，深度折扣占比和平均实付价格留空，并标明价格来源。
-- 同一时刻有两条原价不同记录的游戏（ITAD 同时跟踪两个购买项），清洗时要定取哪一条，例如取原价与商店当前原价一致的那条。
-- 有少数几组 appid 被 ITAD 归到同一个游戏编号下，查到的是同一份价格历史；清洗时要注意它们的价格特征不是各自独立的。
-- 价格特征只从第一条价格记录算起，之前的价格未知，不假设为原价。相邻两条记录隔得过久的折扣多半是漏记了“恢复原价”，需要截断或标记；阈值等看过实际的折扣时长分布再定。
+- 同一时刻有两条原价不同记录的游戏（ITAD 同时跟踪两个购买项或偶尔插进别的购买项），`cleaned_prices` 两条都留，建样本表时再定取哪一条。暂定取原价与前一时刻相同的那条，接不上时看后一时刻；都接不上的计数写日志。
+- 有少数几组 appid 被 ITAD 归到同一个游戏编号下，查到的是同一份价格历史；建样本表时要注意它们的价格特征不是各自独立的。
+- 价格特征只从第一条价格记录算起，之前的价格未知，不假设为原价。持续过久的折扣多半是漏记了“恢复原价”，建样本表时截断，阈值是可调参数（暂定 30 天，实测 99% 的折扣不超过 28 天）；`cleaned_prices` 只存实际持续天数，不截断。
 
 训练集的评测数门槛（暂定，供参考，具体做法到建样本表时再定）：评测 1 到 9 条的游戏不进训练，因为评测数是整数，多一条评测 $k$ 就大幅变化，属于模型学不了的噪声。更高的门槛不预先设定，到训练时用几个候选值做交叉验证比较。原先“评测数 $\ge 500$”的设定不再作为默认，它的依据之一“真值抽样截掉了小游戏”与 Ars 表的实际情况不符（见 devlog 2026-11-11）。评测少的游戏仍按原思路处理：校准中加入 $\ln R$ 项，评估时大小游戏分开报告，在置信标签中降档（置信标签一节的 500 暂时沿用）。
 
