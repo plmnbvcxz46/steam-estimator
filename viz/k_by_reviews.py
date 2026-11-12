@@ -3,7 +3,7 @@
 k = 玩家数 ÷ 评测数。把游戏按评测数分成几档，每一档看 k 的中位数和波动范围，
 用来判断评测数少到什么程度时 k 就不可用了，以及提高门槛要损失多少游戏。
 
-和散点图一样是临时的探查图，直接读 raw 表。
+和散点图共用取数：评测数读清洗表，评测数为 0 的已经去掉。
 """
 
 import logging
@@ -17,12 +17,7 @@ import numpy as np
 
 from common.log import setup_logging
 from common.paths import DB_PATH, FIGURES_DIR
-from viz.reviews_vs_players import (
-    CHINESE_FONTS,
-    CUTOFF_DATE,
-    load_points,
-    split_zero_reviews,
-)
+from viz.reviews_vs_players import CHINESE_FONTS, CUTOFF_DATE, load_points
 
 logger = logging.getLogger(__name__)
 
@@ -141,16 +136,11 @@ def main():
 
     conn = sqlite3.connect(DB_PATH)
     try:
-        rows = load_points(conn)
+        points = load_points(conn)
     finally:
         conn.close()
 
-    points, zero_count = split_zero_reviews(rows)
-    logger.info(
-        "查到评测数的游戏 %d 款，其中评测数为 0 的 %d 款算不出 k，不参与分档",
-        len(rows),
-        zero_count,
-    )
+    logger.info("参与分档的游戏 %d 款", len(points))
 
     summaries = summarize_bins(points)
     for s in summaries:
