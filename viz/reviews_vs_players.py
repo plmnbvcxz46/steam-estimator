@@ -42,6 +42,21 @@ def load_points(conn):
     return conn.execute(POINTS_SQL, (CUTOFF_DATE,)).fetchall()
 
 
+def split_zero_reviews(rows):
+    """把评测数为 0 的游戏分出来单独数，不悄悄丢掉。返回（评测数大于 0 的行，评测数为 0 的款数）。
+
+    评测数为 0 时对数坐标上画不出，k（玩家数 ÷ 评测数）也算不出来。
+    """
+    points = []
+    zero_count = 0
+    for row in rows:
+        if row[1] > 0:
+            points.append(row)
+        else:
+            zero_count += 1
+    return points, zero_count
+
+
 def draw(points, zero_count, output_path):
     """把每款游戏画成一个点，存成图片。points 里的评测数都大于 0。"""
     reviews = [total for _, total, _ in points]
@@ -89,14 +104,7 @@ def main():
     finally:
         conn.close()
 
-    # 把评测数为 0 的分出来单独数，不悄悄丢掉
-    points = []
-    zero_count = 0
-    for row in rows:
-        if row[1] > 0:
-            points.append(row)
-        else:
-            zero_count += 1
+    points, zero_count = split_zero_reviews(rows)
 
     logger.info(
         "有真实玩家数的游戏 %d 款：查到评测数 %d 款（其中评测数为 0 的 %d 款），查不到 %d 款",
