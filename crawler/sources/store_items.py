@@ -13,8 +13,8 @@ from common.clock import now_utc_str
 from common.log import setup_logging
 from common.paths import DB_PATH
 from crawler import crawl_log
+from crawler.appids import pick_appids
 from crawler.http import CrawlError, get_json
-from crawler.sources.appdetails import pick_appids
 
 logger = logging.getLogger(__name__)
 

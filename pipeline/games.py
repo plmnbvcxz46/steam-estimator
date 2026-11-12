@@ -1,36 +1,39 @@
-"""清洗商店信息：raw_appdetails -> cleaned_games。
+"""清洗商店信息：raw_store_items + raw_store_tags + raw_tag_names -> cleaned_games。
 
-raw_appdetails 存的是商店页原文，这里把它整理成后面能直接用的样子：
+三张 raw 表是批量接口的原样结果，这里把它们合成后面能直接用的一张表：
 - 只留游戏，去掉 DLC、原声带等
-- 发行日从 "Sep 26, 2013" 换成 "2013-09-26"
-- 类型里去掉不是类型的词
+- 发行日从时间戳换成 "2013-09-26" 这样的日期
+- 标签按权重排好，去掉不是分类的状态词，用 | 连成一串
 
 cleaned 表是派生数据：每次运行都整张表重建，结果只取决于 raw 表。
 
-进了这张表的行保证是干净的：发行日解析不了的游戏不写入，原文记到日志里。
-看日志补全解析规则后重跑，这些游戏就会进来。
+进了这张表的行保证有发行日：没有发行日的游戏不写入，记到日志里。
 """
 
 import logging
 import sqlite3
-from collections import Counter
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from common.log import setup_logging
 from common.paths import DB_PATH
 
 logger = logging.getLogger(__name__)
 
-# 商店页发行日的写法，如 "Sep 26, 2013"（采集时指定了英文）
-STORE_DATE_FORMAT = "%b %d, %Y"
+# raw_store_items.app_type 里 0 表示游戏，其他数字是 DLC、原声带、软件等
+APP_TYPE_GAME = 0
+
+# Steam 的时间戳记的是按美国太平洋时间定的发行时刻（多是当地白天）。
+# 按 UTC 转，这一刻常常已经是第二天：实测 1221 款里有 173 款会晚一天
+STORE_TIMEZONE = ZoneInfo("America/Los_Angeles")
 
 # 发行日的出处。现在只有商店一种；以后抢先体验的游戏会改用第一条评测的日期，
 # 那时这一列会多出一个取值
 RELEASE_DATE_SOURCE_STORE = "store"
 
-# 商店把这两个词也放在 genres 里，但它们说的是游戏“现在”的状态，不是类型。
+# 这两个标签说的是游戏“现在”的状态，不是分类。
 # 训练样例的截止日是 2018 年，留着它们等于用了未来的信息
-NOT_GENRES = {"Early Access", "Free To Play"}
+NOT_TAGS = {"Early Access", "Free to Play"}
 
 CREATE_TABLE_SQL = """
 CREATE TABLE cleaned_games (
@@ -38,96 +41,84 @@ CREATE TABLE cleaned_games (
     name                TEXT NOT NULL,
     release_date        TEXT NOT NULL,
     release_date_source TEXT NOT NULL,
-    genres              TEXT NOT NULL
+    tags                TEXT NOT NULL
 )
 """
 
 INSERT_SQL = """
-INSERT INTO cleaned_games (appid, name, release_date, release_date_source, genres)
-VALUES (:appid, :name, :release_date, :release_date_source, :genres)
+INSERT INTO cleaned_games (appid, name, release_date, release_date_source, tags)
+VALUES (:appid, :name, :release_date, :release_date_source, :tags)
 """
 
 
-def parse_release_date(text):
-    """把商店页的发行日原文换成 YYYY-MM-DD；解析不了时返回 None。
-
-    目前只认 "Sep 26, 2013" 这一种写法，已采集的数据里全是它。
-    别的写法（如 "Coming soon"）等全量采集后看日志里有哪些，再决定怎么处理。
-    """
-    try:
-        # %b 是英文月份缩写（Sep），%d 是日，%Y 是四位年份
-        parsed = datetime.strptime(text, STORE_DATE_FORMAT)
-    except ValueError:
-        # strptime 对不上格式时抛 ValueError
-        return None
-    return parsed.strftime("%Y-%m-%d")
+def release_ts_to_date(release_ts):
+    """把商店的发行时间戳（秒）换成太平洋时间的 YYYY-MM-DD。"""
+    return datetime.fromtimestamp(release_ts, STORE_TIMEZONE).strftime("%Y-%m-%d")
 
 
-def date_shape(text):
-    """把一段文字换成它的“形状”：数字换成 9，字母换成 a，其余字符不动。
-
-    例如 "Mar 2017" 和 "Apr 2018" 都是 "aaa 9999"。
-    用来把没认出来的发行日按写法归类，而不是每个具体日期各算一种。
-    """
-    shape = ""
-    for char in text:
-        if char.isdigit():
-            shape += "9"
-        elif char.isalpha():
-            shape += "a"
-        else:
-            shape += char
-    return shape
-
-
-def clean_genres(text):
-    """去掉 genres 里不是类型的词。输入输出都是用 | 连接的字符串。"""
+def clean_tags(tag_names):
+    """去掉状态标签，把剩下的用 | 连起来。tag_names 要已经按权重排好。"""
     kept = []
-    for genre in text.split("|"):
-        if genre not in NOT_GENRES:
-            kept.append(genre)
+    for name in tag_names:
+        if name not in NOT_TAGS:
+            kept.append(name)
     return "|".join(kept)
 
 
-def build_cleaned_games(conn):
-    """读 raw_appdetails，重建 cleaned_games。
+def load_tag_names(conn):
+    """读出每款游戏的标签名，返回 {appid: [标签名, ...]}，每款内部按权重从高到低。"""
+    # 权重相同时按 position 排，position 是接口返回时的先后，保证每次结果一样
+    rows = conn.execute(
+        """
+        SELECT t.appid, n.name
+        FROM raw_store_tags AS t
+        JOIN raw_tag_names AS n ON n.tagid = t.tagid
+        ORDER BY t.appid, t.weight DESC, t.position ASC
+        """
+    )
+    tags_by_appid = {}
+    for appid, name in rows:
+        # setdefault：这款第一次出现时先放一个空列表，再往里追加
+        tags_by_appid.setdefault(appid, []).append(name)
+    return tags_by_appid
 
-    不是游戏的、发行日解析不了的不写入，各记一行日志；最后打印汇总。
+
+def build_cleaned_games(conn):
+    """读三张 raw 表，重建 cleaned_games。
+
+    不是游戏的、没有发行日的不写入；没有发行日的每款记一行 warning，最后打印汇总。
     """
     raw_rows = conn.execute(
-        "SELECT appid, name, app_type, release_date, genres FROM raw_appdetails ORDER BY appid"
+        "SELECT appid, name, app_type, release_ts FROM raw_store_items ORDER BY appid"
     ).fetchall()
+    tags_by_appid = load_tag_names(conn)
 
     cleaned_rows = []
     not_game_count = 0
-    # Counter 是“计数用的字典”：记下每种认不出的发行日写法出现了几次。
-    # 键是写法的形状，不是原文，这样 "Mar 2017" 和 "Apr 2018" 会数到一起
-    unparsed_shapes = Counter()
-    # 每种形状留一个原文当例子，光看 "aaa 9999" 不如看 "Mar 2017" 直观
-    shape_examples = {}
+    no_release_count = 0
 
-    for appid, name, app_type, release_text, genres in raw_rows:
-        if app_type != "game":
-            logger.info("appid=%d 不是游戏（%s），不写入", appid, app_type)
+    for appid, name, app_type, release_ts in raw_rows:
+        if app_type != APP_TYPE_GAME:
+            logger.info("appid=%d 不是游戏（app_type=%d），不写入", appid, app_type)
             not_game_count += 1
             continue
 
-        release_date = parse_release_date(release_text)
-        if release_date is None:
-            # %r 会带上引号，空字符串、多余空格都能看出来
-            logger.warning("appid=%d 发行日解析不了，不写入: %r", appid, release_text)
-            shape = date_shape(release_text)
-            unparsed_shapes[shape] += 1
-            shape_examples.setdefault(shape, release_text)  # 只在第一次遇到时记下
+        # NULL 是接口没给；0 是商店没填时的占位，按时间戳转会变成 1970 年，同样当作没有
+        if release_ts is None or release_ts == 0:
+            logger.warning("appid=%d 没有发行日，不写入: release_ts=%r", appid, release_ts)
+            no_release_count += 1
             continue
+
+        # 少数游戏一个标签都没有，get 取不到时给空列表，tags 就是空字符串
+        tag_names = tags_by_appid.get(appid, [])
 
         cleaned_rows.append(
             {
                 "appid": appid,
                 "name": name,
-                "release_date": release_date,
+                "release_date": release_ts_to_date(release_ts),
                 "release_date_source": RELEASE_DATE_SOURCE_STORE,
-                "genres": clean_genres(genres),
+                "tags": clean_tags(tag_names),
             }
         )
 
@@ -140,17 +131,13 @@ def build_cleaned_games(conn):
         conn.execute(CREATE_TABLE_SQL)
         conn.executemany(INSERT_SQL, cleaned_rows)
 
-    unparsed_count = sum(unparsed_shapes.values())
     logger.info(
-        "raw_appdetails 共 %d 行：写入 %d，不是游戏 %d，发行日解析不了 %d",
+        "raw_store_items 共 %d 行：写入 %d，不是游戏 %d，没有发行日 %d",
         len(raw_rows),
         len(cleaned_rows),
         not_game_count,
-        unparsed_count,
+        no_release_count,
     )
-    # most_common() 按出现次数从多到少排，先补哪种写法一目了然
-    for shape, count in unparsed_shapes.most_common():
-        logger.info("未识别的发行日写法 %r（例如 %r）：%d 次", shape, shape_examples[shape], count)
 
 
 def main():
