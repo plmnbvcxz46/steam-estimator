@@ -22,8 +22,8 @@ from common.clock import now_utc_str
 from common.log import setup_logging
 from common.paths import DB_PATH
 from crawler import crawl_log
+from crawler.appids import pick_appids
 from crawler.http import CrawlError, get_json
-from crawler.sources.appdetails import pick_appids
 
 logger = logging.getLogger(__name__)
 
@@ -319,7 +319,7 @@ def main():
 
     setup_logging("review_counts.log")
 
-    # 取哪些 appid：沿用 appdetails.pick_appids（从 Ars 表按固定种子打乱取前 N）；
+    # 取哪些 appid：沿用 crawler.appids.pick_appids（从 Ars 表按固定种子打乱取前 N）；
     # 以后“评测数 >= 500”的筛选属于 pipeline，不在这里做。
     conn = sqlite3.connect(DB_PATH)
     try:
