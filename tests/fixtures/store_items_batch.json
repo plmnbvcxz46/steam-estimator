@@ -1,0 +1,708 @@
+{
+ "response": {
+  "store_items": [
+   {
+    "item_type": 0,
+    "id": 413150,
+    "success": 1,
+    "visible": true,
+    "name": "Stardew Valley",
+    "store_url_path": "app/413150/Stardew_Valley",
+    "store_url_slug": "Stardew_Valley",
+    "appid": 413150,
+    "type": 0,
+    "tagids": [
+     87918,
+     3964,
+     3859,
+     10235,
+     1654,
+     122,
+     599,
+     22602,
+     1702,
+     3810,
+     492,
+     1643,
+     1695,
+     597,
+     4182,
+     3871,
+     9551,
+     4726,
+     1756,
+     15564
+    ],
+    "categories": {
+     "supported_player_categoryids": [
+      2,
+      1,
+      9,
+      38,
+      48,
+      39,
+      24
+     ],
+     "feature_categoryids": [
+      22,
+      29,
+      23,
+      41,
+      42,
+      44,
+      62
+     ],
+     "controller_categoryids": [
+      28
+     ]
+    },
+    "tags": [
+     {
+      "tagid": 87918,
+      "weight": 859
+     },
+     {
+      "tagid": 3964,
+      "weight": 789
+     },
+     {
+      "tagid": 3859,
+      "weight": 780
+     },
+     {
+      "tagid": 10235,
+      "weight": 767
+     },
+     {
+      "tagid": 1654,
+      "weight": 684
+     },
+     {
+      "tagid": 122,
+      "weight": 684
+     },
+     {
+      "tagid": 599,
+      "weight": 555
+     },
+     {
+      "tagid": 22602,
+      "weight": 548
+     },
+     {
+      "tagid": 1702,
+      "weight": 471
+     },
+     {
+      "tagid": 3810,
+      "weight": 471
+     },
+     {
+      "tagid": 492,
+      "weight": 470
+     },
+     {
+      "tagid": 1643,
+      "weight": 386
+     },
+     {
+      "tagid": 1695,
+      "weight": 366
+     },
+     {
+      "tagid": 597,
+      "weight": 364
+     },
+     {
+      "tagid": 4182,
+      "weight": 355
+     },
+     {
+      "tagid": 3871,
+      "weight": 317
+     },
+     {
+      "tagid": 9551,
+      "weight": 316
+     },
+     {
+      "tagid": 4726,
+      "weight": 300
+     },
+     {
+      "tagid": 1756,
+      "weight": 266
+     },
+     {
+      "tagid": 15564,
+      "weight": 241
+     }
+    ],
+    "release": {
+     "steam_release_date": 1456509578
+    },
+    "best_purchase_option": {
+     "packageid": 82712,
+     "purchase_option_name": "Stardew Valley",
+     "final_price_in_cents": "1499",
+     "formatted_final_price": "$14.99",
+     "user_can_purchase_as_gift": true,
+     "hide_discount_pct_for_compliance": false,
+     "included_game_count": 1,
+     "must_purchase_as_set": false,
+     "package_group": "default",
+     "price_cannot_be_displayed_as_discount": false
+    },
+    "purchase_options": [
+     {
+      "packageid": 82712,
+      "purchase_option_name": "Stardew Valley",
+      "final_price_in_cents": "1499",
+      "formatted_final_price": "$14.99",
+      "user_can_purchase_as_gift": true,
+      "hide_discount_pct_for_compliance": false,
+      "included_game_count": 1,
+      "must_purchase_as_set": false,
+      "package_group": "default",
+      "price_cannot_be_displayed_as_discount": false
+     }
+    ],
+    "package_groups": [
+     {
+      "name": "default"
+     },
+     {
+      "name": "subscriptions",
+      "display_type": 1
+     }
+    ]
+   },
+   {
+    "item_type": 0,
+    "id": 440,
+    "success": 1,
+    "visible": true,
+    "name": "Team Fortress 2",
+    "store_url_path": "app/440/Team_Fortress_2",
+    "store_url_slug": "Team_Fortress_2",
+    "appid": 440,
+    "type": 0,
+    "is_free": true,
+    "tagids": [
+     113,
+     620519,
+     3859,
+     1663,
+     1774,
+     19,
+     4155,
+     4136,
+     5711,
+     3839,
+     3843,
+     3878,
+     4195,
+     4202,
+     1685,
+     1719,
+     5752,
+     1708,
+     4562,
+     1702
+    ],
+    "categories": {
+     "supported_player_categoryids": [
+      1,
+      27
+     ],
+     "feature_categoryids": [
+      22,
+      29,
+      13,
+      30,
+      35,
+      66,
+      67,
+      68,
+      69,
+      70,
+      8,
+      15,
+      17,
+      14,
+      41,
+      42
+     ],
+     "controller_categoryids": [
+      18
+     ]
+    },
+    "tags": [
+     {
+      "tagid": 113,
+      "weight": 2217
+     },
+     {
+      "tagid": 620519,
+      "weight": 2139
+     },
+     {
+      "tagid": 3859,
+      "weight": 813
+     },
+     {
+      "tagid": 1663,
+      "weight": 564
+     },
+     {
+      "tagid": 1774,
+      "weight": 458
+     },
+     {
+      "tagid": 19,
+      "weight": 433
+     },
+     {
+      "tagid": 4155,
+      "weight": 361
+     },
+     {
+      "tagid": 4136,
+      "weight": 344
+     },
+     {
+      "tagid": 5711,
+      "weight": 344
+     },
+     {
+      "tagid": 3839,
+      "weight": 287
+     },
+     {
+      "tagid": 3843,
+      "weight": 265
+     },
+     {
+      "tagid": 3878,
+      "weight": 255
+     },
+     {
+      "tagid": 4195,
+      "weight": 255
+     },
+     {
+      "tagid": 4202,
+      "weight": 244
+     },
+     {
+      "tagid": 1685,
+      "weight": 211
+     },
+     {
+      "tagid": 1719,
+      "weight": 198
+     },
+     {
+      "tagid": 5752,
+      "weight": 180
+     },
+     {
+      "tagid": 1708,
+      "weight": 145
+     },
+     {
+      "tagid": 4562,
+      "weight": 143
+     },
+     {
+      "tagid": 1702,
+      "weight": 134
+     }
+    ],
+    "release": {
+     "steam_release_date": 1191999600,
+     "original_release_date": 1191999600
+    },
+    "purchase_options": [
+     {
+      "packageid": 469,
+      "purchase_option_name": "The Orange Box",
+      "final_price_in_cents": "1999",
+      "formatted_final_price": "$19.99",
+      "user_can_purchase_as_gift": true,
+      "hide_discount_pct_for_compliance": false,
+      "included_game_count": 4,
+      "must_purchase_as_set": false,
+      "package_group": "default",
+      "price_cannot_be_displayed_as_discount": false
+     }
+    ],
+    "package_groups": [
+     {
+      "name": "default"
+     },
+     {
+      "name": "subscriptions",
+      "display_type": 1
+     }
+    ]
+   },
+   {
+    "item_type": 0,
+    "id": 639840,
+    "success": 1,
+    "visible": true,
+    "name": "FIELD BREAKING",
+    "store_url_path": "app/639840/FIELD_BREAKING",
+    "store_url_slug": "FIELD_BREAKING",
+    "appid": 639840,
+    "type": 0,
+    "is_early_access": true,
+    "tagids": [
+     597,
+     493,
+     9,
+     492,
+     599,
+     1770,
+     3859,
+     4182,
+     1741
+    ],
+    "categories": {
+     "supported_player_categoryids": [
+      2,
+      1,
+      49,
+      36
+     ],
+     "feature_categoryids": [
+      22,
+      23,
+      62
+     ]
+    },
+    "tags": [
+     {
+      "tagid": 597,
+      "weight": 1658
+     },
+     {
+      "tagid": 493,
+      "weight": 1563
+     },
+     {
+      "tagid": 9,
+      "weight": 1516
+     },
+     {
+      "tagid": 492,
+      "weight": 1469
+     },
+     {
+      "tagid": 599,
+      "weight": 1469
+     },
+     {
+      "tagid": 1770,
+      "weight": 616
+     },
+     {
+      "tagid": 3859,
+      "weight": 616
+     },
+     {
+      "tagid": 4182,
+      "weight": 568
+     },
+     {
+      "tagid": 1741,
+      "weight": 521
+     }
+    ],
+    "release": {
+     "steam_release_date": 1496510676,
+     "original_release_date": 0,
+     "is_early_access": true
+    },
+    "best_purchase_option": {
+     "bundleid": 9877,
+     "purchase_option_name": "Golf: Mini Golf Arena",
+     "final_price_in_cents": "260",
+     "formatted_final_price": "$2.60",
+     "bundle_discount_pct": 80,
+     "price_before_bundle_discount": "1298",
+     "formatted_price_before_bundle_discount": "$12.98",
+     "user_can_purchase_as_gift": true,
+     "hide_discount_pct_for_compliance": false,
+     "included_game_count": 2,
+     "must_purchase_as_set": true,
+     "package_group": "default",
+     "price_cannot_be_displayed_as_discount": false,
+     "combined_discount_pct": 80
+    },
+    "purchase_options": [
+     {
+      "bundleid": 9877,
+      "purchase_option_name": "Golf: Mini Golf Arena",
+      "final_price_in_cents": "260",
+      "formatted_final_price": "$2.60",
+      "bundle_discount_pct": 80,
+      "price_before_bundle_discount": "1298",
+      "formatted_price_before_bundle_discount": "$12.98",
+      "user_can_purchase_as_gift": true,
+      "hide_discount_pct_for_compliance": false,
+      "included_game_count": 2,
+      "must_purchase_as_set": true,
+      "package_group": "default",
+      "price_cannot_be_displayed_as_discount": false,
+      "combined_discount_pct": 80
+     },
+     {
+      "packageid": 177342,
+      "purchase_option_name": "FIELD BREAKING",
+      "final_price_in_cents": "399",
+      "formatted_final_price": "$3.99",
+      "user_can_purchase_as_gift": true,
+      "hide_discount_pct_for_compliance": false,
+      "included_game_count": 1,
+      "must_purchase_as_set": false,
+      "package_group": "default",
+      "price_cannot_be_displayed_as_discount": false
+     }
+    ]
+   },
+   {
+    "item_type": 0,
+    "id": 1200,
+    "success": 1,
+    "visible": true,
+    "name": "Red Orchestra: Ostfront 41-45",
+    "store_url_path": "app/1200/Red_Orchestra_Ostfront_4145",
+    "store_url_slug": "Red_Orchestra_Ostfront_4145",
+    "appid": 1200,
+    "type": 0,
+    "content_descriptorids": [
+     2,
+     5
+    ],
+    "tagids": [
+     4150,
+     19,
+     1663,
+     4175,
+     4182,
+     3859,
+     1774,
+     1678,
+     1708,
+     4168,
+     599,
+     3987,
+     5711,
+     1693,
+     4166,
+     9,
+     4667,
+     3839,
+     13276,
+     1662
+    ],
+    "categories": {
+     "supported_player_categoryids": [
+      1
+     ],
+     "feature_categoryids": [
+      22,
+      8,
+      62
+     ]
+    },
+    "tags": [
+     {
+      "tagid": 4150,
+      "weight": 1306
+     },
+     {
+      "tagid": 19,
+      "weight": 1022
+     },
+     {
+      "tagid": 1663,
+      "weight": 991
+     },
+     {
+      "tagid": 4175,
+      "weight": 768
+     },
+     {
+      "tagid": 4182,
+      "weight": 737
+     },
+     {
+      "tagid": 3859,
+      "weight": 737
+     },
+     {
+      "tagid": 1774,
+      "weight": 630
+     },
+     {
+      "tagid": 1678,
+      "weight": 584
+     },
+     {
+      "tagid": 1708,
+      "weight": 530
+     },
+     {
+      "tagid": 4168,
+      "weight": 530
+     },
+     {
+      "tagid": 599,
+      "weight": 376
+     },
+     {
+      "tagid": 3987,
+      "weight": 361
+     },
+     {
+      "tagid": 5711,
+      "weight": 292
+     },
+     {
+      "tagid": 1693,
+      "weight": 253
+     },
+     {
+      "tagid": 4166,
+      "weight": 192
+     },
+     {
+      "tagid": 9,
+      "weight": 184
+     },
+     {
+      "tagid": 4667,
+      "weight": 169
+     },
+     {
+      "tagid": 3839,
+      "weight": 146
+     },
+     {
+      "tagid": 13276,
+      "weight": 115
+     },
+     {
+      "tagid": 1662,
+      "weight": 69
+     }
+    ],
+    "release": {
+     "steam_release_date": 1142323200,
+     "mac_release_date": 1365113340
+    },
+    "best_purchase_option": {
+     "packageid": 63,
+     "purchase_option_name": "Red Orchestra: Ostfront 41-45",
+     "final_price_in_cents": "199",
+     "original_price_in_cents": "499",
+     "formatted_final_price": "$1.99",
+     "formatted_original_price": "$4.99",
+     "discount_pct": 60,
+     "active_discounts": [
+      {
+       "discount_amount": "300",
+       "discount_description": "#discount_desc_preset_special",
+       "discount_end_date": 1795615200
+      }
+     ],
+     "user_can_purchase_as_gift": true,
+     "hide_discount_pct_for_compliance": false,
+     "included_game_count": 1,
+     "must_purchase_as_set": false,
+     "package_group": "default",
+     "price_cannot_be_displayed_as_discount": false
+    },
+    "purchase_options": [
+     {
+      "packageid": 63,
+      "purchase_option_name": "Red Orchestra: Ostfront 41-45",
+      "final_price_in_cents": "199",
+      "original_price_in_cents": "499",
+      "formatted_final_price": "$1.99",
+      "formatted_original_price": "$4.99",
+      "discount_pct": 60,
+      "active_discounts": [
+       {
+        "discount_amount": "300",
+        "discount_description": "#discount_desc_preset_special",
+        "discount_end_date": 1795615200
+       }
+      ],
+      "user_can_purchase_as_gift": true,
+      "hide_discount_pct_for_compliance": false,
+      "included_game_count": 1,
+      "must_purchase_as_set": false,
+      "package_group": "default",
+      "price_cannot_be_displayed_as_discount": false
+     },
+     {
+      "bundleid": 8315,
+      "purchase_option_name": "Rising Storm Franchise Bundle",
+      "final_price_in_cents": "433",
+      "original_price_in_cents": "3347",
+      "formatted_final_price": "$4.33",
+      "formatted_original_price": "$33.47",
+      "discount_pct": 87,
+      "bundle_discount_pct": 33,
+      "price_before_bundle_discount": "4997",
+      "formatted_price_before_bundle_discount": "$49.97",
+      "active_discounts": [
+       {
+        "discount_amount": "2250",
+        "discount_description": "#discount_desc_preset_special",
+        "discount_end_date": 1795615200
+       },
+       {
+        "discount_amount": "1800",
+        "discount_description": "#discount_desc_preset_special",
+        "discount_end_date": 1795615200
+       },
+       {
+        "discount_amount": "300",
+        "discount_description": "#discount_desc_preset_special",
+        "discount_end_date": 1795615200
+       }
+      ],
+      "user_can_purchase_as_gift": true,
+      "hide_discount_pct_for_compliance": false,
+      "included_game_count": 5,
+      "must_purchase_as_set": true,
+      "package_group": "default",
+      "price_cannot_be_displayed_as_discount": false,
+      "combined_discount_pct": 91
+     }
+    ],
+    "purchase_notes": [
+     {
+      "type": 1,
+      "text_bbcode": "<a href=\"[url=http://store.steampowered.com/app/1280/]http://store.steampowered.com/app/1280/[/url]\">Darkest Hour</a>, a new Red Orchestra mod is now available."
+     }
+    ]
+   },
+   {
+    "item_type": 0,
+    "id": 852,
+    "success": 15,
+    "visible": false,
+    "name": "",
+    "store_url_path": "app/0/",
+    "store_url_slug": "",
+    "appid": 0
+   }
+  ]
+ }
+}
