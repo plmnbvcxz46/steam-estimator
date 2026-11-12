@@ -9,3 +9,4 @@ DATA_DIR = PROJECT_ROOT / "data"
 SOURCE_DIR = DATA_DIR / "source"  # 外部原件
 LOG_DIR = DATA_DIR / "logs"
 DB_PATH = DATA_DIR / "steam.db"
+FIGURES_DIR = PROJECT_ROOT / "figures"  # 生成的图
