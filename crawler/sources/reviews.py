@@ -1,16 +1,16 @@
-"""采集抽样评测（截止日前按时间分 5 段），写入 raw_review_windows 和 raw_review_sample。
+"""采集抽样评测（截止日前按时间分 5 段），写入 raw_review_windows 和 raw_reviews。
 
 要的是评测者“写评测时玩了多久”（playtime_at_review），供信号 A 的特征和信号 B 的人均时长。
 接口做不到随机抽，只取截止日前最新的 100 条又只看得到截止日前不久的评测者，
 所以把“上架到截止日”平均切成 5 段，每段请求一次，拿回两样东西：
     这一段的评测总数（存 raw_review_windows，建样本表时当权重）
-    这一段最新的至多 100 条评测（存 raw_review_sample）
+    这一段最新的至多 100 条评测（存 raw_reviews）
 加权中位数在建样本表时算，这里只存原始数。
 
 和评测计数用同一个接口，地址、限速、截止日换算都从 review_counts 拿。
 
 整体流程（和 review_counts 一样）：
-    main -> crawl_review_sample
+    main -> crawl_reviews
               |- load_release_ts  查每款游戏的上架时刻，用来切段
               |- pending_jobs     列出还没做的任务（一款 5 段，一段一个任务）
               |    -> make_windows
@@ -36,7 +36,7 @@ from crawler.sources import review_counts
 
 logger = logging.getLogger(__name__)
 
-SOURCE = "review_sample"  # 写进 raw_crawl_log 的数据源名
+SOURCE = "reviews"  # 写进 raw_crawl_log 的数据源名
 PROGRESS_EVERY = 300  # 每完成多少次请求打一行进度
 WINDOW_COUNT = 5  # 分几段：实测 5 段和 20 段的中位数接近，见 devlog 2026-11-13
 PER_PAGE = 100  # 每段取几条，接口一页最多 100 条
@@ -65,7 +65,7 @@ INSERT INTO raw_review_windows VALUES (
 
 # 一条评测一行；不存正文
 CREATE_SAMPLE_SQL = """
-CREATE TABLE IF NOT EXISTS raw_review_sample (
+CREATE TABLE IF NOT EXISTS raw_reviews (
     appid                  INTEGER NOT NULL,
     cutoff_date            TEXT NOT NULL,
     review_id              TEXT NOT NULL,
@@ -78,7 +78,7 @@ CREATE TABLE IF NOT EXISTS raw_review_sample (
 """
 
 INSERT_SAMPLE_SQL = """
-INSERT INTO raw_review_sample VALUES (
+INSERT INTO raw_reviews VALUES (
     :appid, :cutoff_date, :review_id, :window, :created_at,
     :playtime_at_review_min, :playtime_forever_min
 )
@@ -278,7 +278,7 @@ def save_result(conn, result):
         crawl_log.record(conn, SOURCE, key, result["status"])
 
 
-def crawl_review_sample(conn, appids, cutoff_date, workers=1):
+def crawl_reviews(conn, appids, cutoff_date, workers=1):
     """采集 appids 在 cutoff_date 前的抽样评测。只负责调度，和 crawl_review_counts 一样。"""
     ensure_tables(conn)
     release_of = load_release_ts(conn, appids)
@@ -305,7 +305,7 @@ def crawl_review_sample(conn, appids, cutoff_date, workers=1):
 
 
 def main():
-    """命令行入口：python -m crawler.sources.review_sample [数量] [--cutoff 日期] [--workers 路数]"""
+    """命令行入口：python -m crawler.sources.reviews [数量] [--cutoff 日期] [--workers 路数]"""
     parser = argparse.ArgumentParser(description="采集抽样评测")
     parser.add_argument(
         "limit",
@@ -322,11 +322,11 @@ def main():
     )
     args = parser.parse_args()
 
-    setup_logging("review_sample.log")
+    setup_logging("reviews.log")
 
     conn = sqlite3.connect(DB_PATH)
     try:
-        crawl_review_sample(
+        crawl_reviews(
             conn, pick_appids(conn, args.limit), args.cutoff, args.workers
         )
     finally:

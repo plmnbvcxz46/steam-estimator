@@ -2,8 +2,8 @@ import json
 import sqlite3
 
 from crawler.http import CrawlError
-from crawler.sources import review_sample, store_items
-from crawler.sources.review_sample import make_windows, parse_window
+from crawler.sources import reviews, store_items
+from crawler.sources.reviews import make_windows, parse_window
 
 CUTOFF = "2018-07-01"
 CUTOFF_TS = 1530403200  # 2018-07-01 零点（UTC）
@@ -128,26 +128,26 @@ def crawl_conn():
 
 def test_crawl_writes_windows_and_reviews(monkeypatch):
     conn = crawl_conn()
-    monkeypatch.setattr(review_sample, "get_json", fake_get_json_factory())
+    monkeypatch.setattr(reviews, "get_json", fake_get_json_factory())
 
-    review_sample.crawl_review_sample(conn, [220], CUTOFF)
+    reviews.crawl_reviews(conn, [220], CUTOFF)
 
     windows = conn.execute("SELECT window, total FROM raw_review_windows ORDER BY window").fetchall()
     assert windows == [(1, 10), (2, 20), (3, 30), (4, 40), (5, 50)]
-    reviews = conn.execute("SELECT review_id, window FROM raw_review_sample ORDER BY window").fetchall()
-    assert reviews == [("220-1", 1), ("220-2", 2), ("220-3", 3), ("220-4", 4), ("220-5", 5)]
+    sampled = conn.execute("SELECT review_id, window FROM raw_reviews ORDER BY window").fetchall()
+    assert sampled == [("220-1", 1), ("220-2", 2), ("220-3", 3), ("220-4", 4), ("220-5", 5)]
 
 
 def test_crawl_retries_only_failed_windows(monkeypatch):
     conn = crawl_conn()
-    monkeypatch.setattr(review_sample, "get_json", fake_get_json_factory(fail_windows=(3,)))
-    review_sample.crawl_review_sample(conn, [220], CUTOFF)
+    monkeypatch.setattr(reviews, "get_json", fake_get_json_factory(fail_windows=(3,)))
+    reviews.crawl_reviews(conn, [220], CUTOFF)
     assert conn.execute("SELECT COUNT(*) FROM raw_review_windows").fetchone()[0] == 4
 
     # 重跑：成功的 4 段已有定论，只该再请求第 3 段
     fake = fake_get_json_factory()
-    monkeypatch.setattr(review_sample, "get_json", fake)
-    review_sample.crawl_review_sample(conn, [220], CUTOFF)
+    monkeypatch.setattr(reviews, "get_json", fake)
+    reviews.crawl_reviews(conn, [220], CUTOFF)
 
     third_start = make_windows(None, CUTOFF)[2][1]
     assert fake.calls == [(220, third_start)]
