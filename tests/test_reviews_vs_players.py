@@ -2,13 +2,16 @@
 
 import sqlite3
 
-from pipeline import samples
 from viz.reviews_vs_players import fit_fixed_multiplier, load_points
 
 
 def test_load_points_reads_train_rows_of_sample_table():
     conn = sqlite3.connect(":memory:")
-    conn.execute(samples.CREATE_TABLE_SQL)
+    # 只建 load_points 会读的几列，样本表以后加特征列不影响这个测试
+    conn.execute(
+        "CREATE TABLE cleaned_samples (sample_id TEXT, appid INTEGER, cutoff_date TEXT,"
+        " split TEXT, truth_value INTEGER, total_reviews INTEGER)"
+    )
     conn.execute(
         "INSERT INTO cleaned_samples (sample_id, appid, cutoff_date, split, truth_value, total_reviews)"
         " VALUES ('train:10:2018-07-01', 10, '2018-07-01', 'train', 5000, 120)"

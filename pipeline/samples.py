@@ -18,6 +18,7 @@ import sqlite3
 
 from common.log import setup_logging
 from common.paths import DB_PATH
+from pipeline.review_counts import LANGUAGES
 
 logger = logging.getLogger(__name__)
 
@@ -28,19 +29,51 @@ SPLIT_TRAIN = "train"
 
 CREATE_TABLE_SQL = """
 CREATE TABLE cleaned_samples (
-    sample_id     TEXT PRIMARY KEY,
-    appid         INTEGER NOT NULL,
-    cutoff_date   TEXT NOT NULL,
-    split         TEXT NOT NULL,
-    truth_value   INTEGER,
-    total_reviews INTEGER NOT NULL
+    sample_id            TEXT PRIMARY KEY,
+    appid                INTEGER NOT NULL,
+    cutoff_date          TEXT NOT NULL,
+    split                TEXT NOT NULL,
+    truth_value          INTEGER,
+    total_reviews        INTEGER NOT NULL,
+    positive_rate        REAL NOT NULL,
+    steam_purchase_ratio REAL NOT NULL,
+    share_brazilian      REAL NOT NULL,
+    share_english        REAL NOT NULL,
+    share_french         REAL NOT NULL,
+    share_german         REAL NOT NULL,
+    share_japanese       REAL NOT NULL,
+    share_koreana        REAL NOT NULL,
+    share_latam          REAL NOT NULL,
+    share_polish         REAL NOT NULL,
+    share_russian        REAL NOT NULL,
+    share_schinese       REAL NOT NULL,
+    share_spanish        REAL NOT NULL,
+    share_tchinese       REAL NOT NULL,
+    share_turkish        REAL NOT NULL,
+    share_other          REAL NOT NULL
 )
 """
 
-INSERT_SQL = """
-INSERT INTO cleaned_samples (sample_id, appid, cutoff_date, split, truth_value, total_reviews)
-VALUES (:sample_id, :appid, :cutoff_date, :split, :truth_value, :total_reviews)
-"""
+# 插入时要列出全部列名。列一多手写容易漏，所以从这份清单拼出 INSERT 语句；
+# 清单的顺序和上面建表的顺序一致
+SAMPLE_COLUMNS = [
+    "sample_id",
+    "appid",
+    "cutoff_date",
+    "split",
+    "truth_value",
+    "total_reviews",
+    "positive_rate",
+    "steam_purchase_ratio",
+]
+for language in LANGUAGES:
+    SAMPLE_COLUMNS.append("share_" + language)
+SAMPLE_COLUMNS.append("share_other")
+
+INSERT_SQL = (
+    "INSERT INTO cleaned_samples (" + ", ".join(SAMPLE_COLUMNS) + ")"
+    " VALUES (" + ", ".join(":" + column for column in SAMPLE_COLUMNS) + ")"
+)
 
 
 def make_sample_id(split, appid, cutoff_date):
@@ -51,6 +84,31 @@ def make_sample_id(split, appid, cutoff_date):
     同一款游戏同一天既在校准集又被查询时也不会撞。
     """
     return f"{split}:{appid}:{cutoff_date}"
+
+
+def review_count_features(total_reviews, positive_reviews, steam_purchase_reviews, language_reviews):
+    """评测计数这一类特征：都是“某类评测数 ÷ 评测总数”。
+
+    language_reviews 是 {语言代码: 该语言评测数}，13 种语言。
+    返回一个 dict：好评率、Steam 内购买占比、13 种语言的占比和 13 种之外的占比，共 16 项。
+
+    存占比不存条数：条数 = 评测数 × 占比，两者重复；
+    占比在评测多的游戏和评测少的游戏之间才能比。
+    """
+    features = {
+        "positive_rate": positive_reviews / total_reviews,
+        "steam_purchase_ratio": steam_purchase_reviews / total_reviews,
+    }
+
+    known_language_reviews = 0
+    for language in LANGUAGES:
+        count = language_reviews[language]
+        features["share_" + language] = count / total_reviews
+        known_language_reviews += count
+
+    # 用条数相减再除，不用 1 减 13 个占比：小数相减会留下 -0.00000001 这样的尾巴
+    features["share_other"] = (total_reviews - known_language_reviews) / total_reviews
+    return features
 
 
 def load_train_rows(conn):
@@ -67,9 +125,12 @@ def load_train_rows(conn):
     # JOIN 要求三张表里都找得到这款游戏，条件 1、2、4 就靠它完成；只有 3 要写 WHERE。
     # 条件 3 现在其实删不掉任何游戏：上架日含“抽到的最早评测”，有评测就一定早于截止日。
     # 留着它是保险，上架日的规则以后变了也不会放进还没开卖的游戏
+    # 13 种语言的条数列，按 LANGUAGES 的顺序排在最后
+    language_columns = ", ".join("r.reviews_" + language for language in LANGUAGES)
     raw_rows = conn.execute(
-        """
-        SELECT a.appid, a.players, r.total_reviews
+        f"""
+        SELECT a.appid, a.players, r.total_reviews, r.positive_reviews,
+               r.steam_purchase_reviews, {language_columns}
         FROM raw_ars_players_2018 a
         JOIN cleaned_games g ON g.appid = a.appid
         JOIN cleaned_review_counts r ON r.appid = a.appid AND r.cutoff_date = ?
@@ -80,17 +141,25 @@ def load_train_rows(conn):
     ).fetchall()
 
     rows = []
-    for appid, players, total_reviews in raw_rows:
-        rows.append(
-            {
-                "sample_id": make_sample_id(SPLIT_TRAIN, appid, TRAIN_CUTOFF),
-                "appid": appid,
-                "cutoff_date": TRAIN_CUTOFF,
-                "split": SPLIT_TRAIN,
-                "truth_value": players,
-                "total_reviews": total_reviews,
-            }
+    for raw_row in raw_rows:
+        appid, players, total_reviews, positive_reviews, steam_purchase_reviews = raw_row[:5]
+        # 前 5 个之后就是 13 种语言的条数，和 LANGUAGES 一一配对
+        language_reviews = dict(zip(LANGUAGES, raw_row[5:]))
+
+        row = {
+            "sample_id": make_sample_id(SPLIT_TRAIN, appid, TRAIN_CUTOFF),
+            "appid": appid,
+            "cutoff_date": TRAIN_CUTOFF,
+            "split": SPLIT_TRAIN,
+            "truth_value": players,
+            "total_reviews": total_reviews,
+        }
+        row.update(
+            review_count_features(
+                total_reviews, positive_reviews, steam_purchase_reviews, language_reviews
+            )
         )
+        rows.append(row)
     return rows
 
 

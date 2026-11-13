@@ -2,7 +2,7 @@ import sqlite3
 
 from crawler.sources import ars
 from pipeline import games, review_counts
-from pipeline.samples import build_samples
+from pipeline.samples import build_samples, review_count_features
 
 CUTOFF = "2018-07-01"
 
@@ -96,3 +96,20 @@ def test_rebuild_replaces_old_rows():
     build_samples(conn)
 
     assert len(sample_rows(conn)) == 1
+
+
+def test_review_count_features_are_shares_of_total():
+    # 100 条评测：80 条好评、60 条 Steam 内购买；英语 50、简中 30，其余 12 种语言 0
+    language_reviews = {language: 0 for language in review_counts.LANGUAGES}
+    language_reviews["english"] = 50
+    language_reviews["schinese"] = 30
+
+    features = review_count_features(100, 80, 60, language_reviews)
+
+    assert features["positive_rate"] == 0.8
+    assert features["steam_purchase_ratio"] == 0.6
+    assert features["share_english"] == 0.5
+    assert features["share_schinese"] == 0.3
+    # 13 种之外的语言占剩下的 20 条
+    assert features["share_other"] == 0.2
+    assert len(features) == 16
