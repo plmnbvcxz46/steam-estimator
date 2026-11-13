@@ -13,21 +13,22 @@
 - 爬虫按站点限速；续传靠主键跳过已有行，空结果记 `raw_crawl_log`，不另设缓存与检查点；不爬 SteamDB。
 - 密钥只放 `.env`；`data/steam.db` 不入 git。
 - 文档管"做什么、为什么、不能做什么"，代码管"叫什么、取多少"。代码和其他文件引用文档时只写文件名或章节标题，不写章节号。
-- 文档分工：设计 → DEVELOPMENT.md；公式推导 → DERIVATIONS.md；决策与踩坑 → devlog.md（按日期）；README 只放简介、运行命令、最新结果。不新增文档文件。
-- 提交信息 `类型: 描述`（feat / fix / docs / refactor / chore / test）。不加任何 AI 署名，作者只用提交者本人的 git 身份。
+- 文档分工：设计 → DEVELOPMENT.md；公式推导 → DERIVATIONS.md；决策与踩坑 → devlog.md（按日期）；答辩讲解稿 → PRESENTATION.md（只写讲述线，规则细节链接到 DEVELOPMENT.md）；README 只放简介、运行命令、最新结果。不新增文档文件。
+- 提交信息 `类型: 描述`（feat / fix / docs / refactor / perf / style / chore / test）。不加任何 AI 署名，作者只用提交者本人的 git 身份。
 
 ## 分支与推送
 
 - `main` 只放能跑通的稳定版本，不直接在上面开发；所有改动在分支上做，完成后合并。
 - 分支名：`类型/简述`，小写加连字符，例如 `feat/crawler-reviews`、`fix/cutoff-align`、`docs/readme`。类型同提交类型。
 - 一个分支只做一件事，尽量小步提交；提交信息 `类型: 描述`。
-- 推送前先跑 `pytest`；不强推 `main`（不用 `--force`）。
+- 推送前先跑 `python -m pytest`；不强推 `main`（不用 `--force`）。
 - 远程名统一用 `origin`，用 SSH 地址；推送新分支用 `git push -u origin <分支名>`。
 - 共享文件（devlog.md、DEVELOPMENT.md 的数据表、`common/`、`crawler/http.py`、`crawler/crawl_log.py`）改动要小、尽早合并；改共用代码先说一声，单独一个小 PR。
 
 ## 健壮性
 
-- 外部输入（网络响应、CSV、真值表）一律校验后再用，缺字段或异常值写入日志并跳过，不让整批任务崩掉。
+- 网络采集拿到的响应一律校验后再用，缺字段或异常值写入日志并跳过，不让整批任务崩掉。
+- 本地固定文件（CSV、真值表）不逐行防御，只防真实会出的问题，格式出错让它直接报错。
 - 网络请求必须有超时、重试与退避；任务可中断重跑，结果不变。
 - 写数据库用事务，一批写完再提交；写其他文件先写临时文件再改名，避免中断留下半截数据。
 - 不吞异常：捕获后要记录原因；关键假设用断言或测试守住。
