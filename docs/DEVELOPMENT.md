@@ -102,7 +102,8 @@ docs/                                    # 设计、推导、devlog
 | `raw_store_tags` | `(appid, tagid)` | 一款游戏的一个标签一行，每款最多取权重最高的 20 个：`weight`（权重，打这个标签的人越多越大）、`position`（按权重从高到低排第几，从 1 开始） |
 | `raw_tag_names` | `tagid` | `name`（标签的英文名） |
 | `raw_review_counts` | `(appid, cutoff_date, query)` | `total`（评测数）、`positive`（其中好评数）；`query` 为请求口径的英文标签：`all`（全部）、`steam_purchase`（Steam 内购买）、`post_policy`（政策后）、`lang:<Steam 语言代码>`（某语言）；一次请求一行 |
-| `raw_review_sample` | `(appid, cutoff_date, review_id)` | `created_at`、`playtime_at_review_min`、`playtime_forever_min`（只存档） |
+| `raw_review_windows` | `(appid, cutoff_date, window)` | 评测抽样把截止日前的时间分成 5 段，一段一行：`window`（段号 1 到 5，按时间先后）、`start_ts`、`end_ts`（这一段的起止时刻，Unix 秒，两端都含）、`total`（这一段里的评测总数）、`fetched_at` |
+| `raw_review_sample` | `(appid, cutoff_date, review_id)` | 抽到的评测，一条一行：`review_id`（接口的 `recommendationid`）、`window`（属于第几段）、`created_at`（写评测的时刻，UTC）、`playtime_at_review_min`（写评测时的游玩分钟数）、`playtime_forever_min`（采集当天的总游玩分钟数，只存档）。不存评测正文 |
 | `raw_charts_monthly` | `(appid, month)` | `avg_players` |
 | `raw_itad_ids` | `appid` | `itad_id`（ITAD 的游戏编号，未收录时为空）；查历史价格前先用它把 `appid` 换成 ITAD 编号 |
 | `raw_price_history` | `(appid, country, changed_at, regular, price)` | 一次价格变动一行，只记变动之后的状态：`currency`、`price`（实付价）、`regular`（当时的标价，不打折时卖多少）、`cut`（折扣百分比）、`fetched_at`。有的游戏 ITAD 同时跟踪两个 Steam 购买项，同一时刻有两条原价不同的记录，接口不标明属于哪个购买项，所以主键带上 `regular` 和 `price`，两条都存，选哪条留给 `pipeline`。不存“上一个价格”和“结束时间”：上一个价格就是上一行的 `price`，一条记录的状态持续到下一条记录的 `changed_at` 为止。`changed_at` 为变动时刻，入库时统一换成 UTC；`country` 暂时只采 `US`；存全部历史，截止日筛选留给 `pipeline`。只存 Steam 商店（ITAD 商店编号 61）的记录 |
@@ -117,7 +118,7 @@ docs/                                    # 设计、推导、devlog
 | `cleaned_review_counts` | `(appid, cutoff_date)` | 把 `raw_review_counts` 里一款游戏的 15 行（15 个口径）合成一行，存条数不存占比，占比在建样本表时再算：`total_reviews`（评测数）、`positive_reviews`（其中好评数）、`steam_purchase_reviews`（Steam 内购买的评测数）、`reviews_<Steam 语言代码>`（13 种语言各一列，如 `reviews_schinese`）。评测数为 0 的不写入，按个数记日志；某款的口径不足 15 个说明采集没跑完，直接报错 |
 | `cleaned_prices` | `(appid, started_at, regular, price)` | 把价格变动点变成时间段，raw 表一个变动点对应一段，行数相同：`started_at`（变动时刻）、`ended_at`（这款游戏下一个不同变动时刻；最后一段用这款的采集时刻 `fetched_at`）、`regular`（原价）、`price`（实付价）、`cut`（折扣百分比）、`days`（持续天数，可带小数）。不按截止日截取，存完整历史；同一时刻的多条记录都保留，共用同一段时间；不选线、不截断，这些取舍放在建样本表时。不按天铺开：全部游戏铺到采集日约 4900 万行 |
 | `cleaned_charts_monthly` | `(appid, month)` | `avg_players` |
-| `cleaned_samples` | `sample_id` | 样本：`appid`、`cutoff_date`、`split`（`train` / `calib` / `query`）、`truth_value`（`query` 为空）<br>评测：`total_reviews`、`positive_rate`、`steam_purchase_ratio`、`p_post`、`share_<语言>`、`playtime_median_hrs`、`playtime_mean_hrs`、`sample_n`（抽样条数，用于设定时长可靠性阈值）<br>价格：`price_at_cutoff_usd`、`price_source`、`frac_time_cut75`（深度折扣时间占比）、`avg_price_usd`（截止日前按天平均的实付价格）<br>其他：`game_age_years`、`tag_<标签>`、`charts_total_hours`（$H$） |
+| `cleaned_samples` | `sample_id` | 样本：`appid`、`cutoff_date`、`split`（`train` / `calib` / `query`）、`truth_value`（`query` 为空）<br>评测：`total_reviews`、`positive_rate`、`steam_purchase_ratio`、`p_post`、`share_<语言>`、`playtime_median_hrs`、`playtime_mean_hrs`（评测者写评测时的游玩小时，按段加权）、`sample_n`（抽样条数，用于设定时长可靠性阈值）<br>价格：`price_at_cutoff_usd`、`price_source`、`frac_time_cut75`（深度折扣时间占比）、`avg_price_usd`（截止日前按天平均的实付价格）<br>其他：`game_age_years`、`tag_<标签>`、`charts_total_hours`（$H$） |
 
 **result：分析结果，`viz` 只读。**
 
@@ -141,7 +142,7 @@ docs/                                    # 设计、推导、devlog
 | --- | --- | --- |
 | 商店信息 | Steam `IStoreBrowseService/GetItems` 接口（一次可查多款；只能取当前价格）；标签名来自 `IStoreService/GetTagList` | 是不是游戏、标签、发售日、是否免费、当前原价 |
 | 评测计数 | Steam `GetAppReviews` 接口的汇总数 | 截止日前的评测总数、好评、Steam 内购买、政策后、各语言，均为精确值 |
-| 评测抽样 | Steam `GetAppReviews` 接口 | 评测者时长中位数，供信号 A 的特征和信号 B |
+| 评测抽样 | Steam `GetAppReviews` 接口：截止日前按时间分 5 段，每段取该段最新的至多 100 条 | 评测者时长中位数，供信号 A 的特征和信号 B |
 | 月度在线人数 | SteamCharts | 信号 B |
 | 历史价格 | IsThereAnyDeal（ITAD）接口的价格变动记录，只取 Steam 商店、美国区；重新采集，不沿用早期探索版本的价格表 | 截止日原价、截止日是否免费、深度折扣占比、平均实付价格等价格特征 |
 | 训练真值 | Ars Technica 2018-07-01 玩家数表 | 训练集 |
@@ -154,12 +155,13 @@ docs/                                    # 设计、推导、devlog
 - 评测计数请求量大（每款 15 次），可以几路同时发请求：`python -m crawler.sources.review_counts --workers 路数`。发请求由线程池做，写库只由主线程做；限速对所有线程合计。
 - 商店信息用批量接口采集：一次请求查 200 款（实测 400 款会被拒绝），全部一万三千多款约 70 次请求。原先用的 `appdetails` 接口一次只能查一款，且按 IP 限流（实测约每 5 分钟 200 次），全量要 5 个多小时，已停用。
 - 已从商店下架的游戏，评测接口返回为空，在 `raw_crawl_log` 记“未收录”，不写数据行，重跑时不再请求。
-- 评测只取两类数据：限定在截止日前的计数（汇总数，不翻页），以及少量抽样评测。抽样不是严格的随机样本。
+- 评测只取两类数据：限定在截止日前的计数（汇总数，不翻页），以及少量抽样评测。
+- 评测抽样按时间分层：从上架时刻到截止日平均切成 5 段，每段请求一次，拿回这一段的评测总数和最新的至多 100 条（一页的上限），每款 5 次请求。第一段的起点用 1，抢先体验期间等早于上架时刻的评测也算进去；上架时刻取 `raw_store_items.release_ts`，缺失、晚于截止日或早于评测系统上线（2013-10-01）时从 2013-10-01 算起。相邻两段首尾不重叠。接口只能按时间、有帮助程度排序，做不到真随机；只取截止日前最新的 100 条会只看到截止日前不久的评测者，老游戏偏差很大（实测见 devlog 2026-11-13）。
 - 抽样评测里的 `playtime_forever` 是采集当天的总时长，包含截止日之后的游玩，不用于任何计算。
 - 在线人数只用截止日所在月之前的整月。
 - 历史价格来自 ITAD，需要 API 密钥，放在本地 `.env` 里，不进仓库。接口默认只返回最近 3 个月，请求时要显式给一个足够早的起始时间。ITAD 不认 Steam 的 appid，先批量换成 ITAD 编号（一次 200 款），再逐款查历史。限额为 5 分钟 1000 次。
 
-已知偏差：已删除的评测和被封账号的评测在接口中已不存在，重建出的历史评测数偏少，对 2018 训练集影响更大。
+已知偏差：已删除的评测和被封账号的评测在接口中已不存在，重建出的历史评测数偏少，对 2018 训练集影响更大。2013 年前上架的游戏，评测系统上线前的玩家没有评测，分段抽样也代表不了他们；评测系统刚上线时来写评测的多是玩了多年的老玩家，时长偏长。
 
 ### 3.3 清洗与训练集门槛
 
@@ -174,6 +176,7 @@ docs/                                    # 设计、推导、devlog
 - 历史价格缺失的游戏不删除：用当前原价兜底，深度折扣占比和平均实付价格留空，并标明价格来源。
 - 同一时刻有两条原价不同记录的游戏（ITAD 同时跟踪两个购买项或偶尔插进别的购买项），`cleaned_prices` 两条都留，建样本表时再定取哪一条。暂定取原价与前一时刻相同的那条，接不上时看后一时刻；都接不上的计数写日志。
 - 有少数几组 appid 被 ITAD 归到同一个游戏编号下，查到的是同一份价格历史；建样本表时要注意它们的价格特征不是各自独立的。
+- 评测者时长中位数按段加权：每段抽到的评测，每条的权重为这一段的评测总数除以这一段抽到的条数，再取加权中位数。抽到的评测里缺 `playtime_at_review` 的不计入。
 - 价格特征只从第一条价格记录算起，之前的价格未知，不假设为原价。持续过久的折扣多半是漏记了“恢复原价”，建样本表时截断，阈值是可调参数（暂定 30 天，实测 99% 的折扣不超过 28 天）；`cleaned_prices` 只存实际持续天数，不截断。
 
 训练集的评测数门槛（暂定，供参考，具体做法到建样本表时再定）：评测 1 到 9 条的游戏不进训练，因为评测数是整数，多一条评测 $k$ 就大幅变化，属于模型学不了的噪声。更高的门槛不预先设定，到训练时用几个候选值做交叉验证比较。原先“评测数 $\ge 500$”的设定不再作为默认，它的依据之一“真值抽样截掉了小游戏”与 Ars 表的实际情况不符（见 devlog 2026-11-11）。评测少的游戏仍按原思路处理：校准中加入 $\ln R$ 项，评估时大小游戏分开报告，在置信标签中降档（置信标签一节的 500 暂时沿用）。
