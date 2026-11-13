@@ -21,7 +21,7 @@
 - `main` 只放能跑通的稳定版本，不直接在上面开发；所有改动在分支上做，完成后合并。
 - 分支名：`类型/简述`，小写加连字符，例如 `feat/crawler-reviews`、`fix/cutoff-align`、`docs/readme`。类型同提交类型。
 - 一个分支只做一件事，尽量小步提交；提交信息 `类型: 描述`。
-- 推送前先跑 `python -m pytest`；不强推 `main`（不用 `--force`）。
+- 推送前先跑 `pytest`；不强推 `main`（不用 `--force`）。
 - 远程名统一用 `origin`，用 SSH 地址；推送新分支用 `git push -u origin <分支名>`。
 - 共享文件（devlog.md、DEVELOPMENT.md 的数据表、`common/`、`crawler/http.py`、`crawler/crawl_log.py`）改动要小、尽早合并；改共用代码先说一声，单独一个小 PR。
 

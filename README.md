@@ -17,7 +17,7 @@ pip install -r requirements.txt
 python -m crawler.sources.<源>          # 采集到 steam.db 的 raw_* 表；源：store_items、review_counts、reviews、itad、ars
 python -m pipeline.games                # 清洗，写 cleaned_* 表；另有 pipeline.prices、pipeline.review_counts
 python -m viz.k_by_reviews              # 图表到 figures/；另有 viz.reviews_vs_players
-python -m pytest                        # 测试
+pytest                                  # 测试
 ```
 
 训练、评估、单款查询还没做（规划中）：

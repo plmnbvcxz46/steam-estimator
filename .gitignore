@@ -13,7 +13,6 @@ venv/
 # 数据库
 data/steam.db
 data/steam.db-*
-data/*.duckdb
 data/models/
 
 # 日志可由 pipeline 重新生成，不入 git
@@ -22,7 +21,6 @@ data/logs/*
 
 # 生成的图
 figures/*
-!figures/.gitkeep
 !figures/dataflow.html
 
 # 编辑器 / 系统
