@@ -167,7 +167,7 @@ const N=[
  fields:[F('is_free','是否免费',['games'],{key:1}),F('release_date','发售日',['games'],{key:1}),F('genres','类型',['games'],{key:1}),F('app_type','游戏 / DLC / 软件',['games']),F('initial_price_usd','当前原价',['prices_c']),F('name','游戏名',['games']),F('fetched_at','采集时间',[],{flag:'none'})]},
 {id:'raw_cnt',col:1,y:450,kind:'tbl',title:'raw_review_counts',key:'(appid, cutoff_date, query)',what:'按截止日、按口径的评测数。',
  fields:[F('query','口径：全部 / 好评 / Steam 内购买 / 政策后 / 某语言',['samples'],{key:1}),F('count','条数',['samples'],{key:1}),F('cutoff_date','截止日'),F('fetched_at','采集时间',[],{flag:'none'})]},
-{id:'raw_smp',col:1,y:570,kind:'tbl',title:'raw_review_sample',key:'(appid, cutoff_date, review_id)',what:'抽样评测。',
+{id:'raw_smp',col:1,y:570,kind:'tbl',title:'raw_reviews',key:'(appid, cutoff_date, review_id)',what:'抽样评测。',
  fields:[F('playtime_at_review_min','写评测时的时长（分钟）',['samples'],{key:1}),F('created_at','评测日期',['games']),F('playtime_forever_min','采集当天的总时长',[],{flag:'none'}),F('review_id','评测编号'),F('fetched_at','采集时间',[],{flag:'none'})]},
 {id:'raw_charts',col:1,y:670,kind:'tbl',title:'raw_charts_monthly',key:'(appid, month)',what:'月度在线人数原样。',
  fields:[F('avg_players','月均同时在线',['charts_c'],{key:1}),F('month','YYYY-MM'),F('fetched_at','采集时间',[],{flag:'none'})]},

@@ -52,7 +52,9 @@ def group_by_game(raw_rows):
 
 def days_between(start, end):
     """两个时刻相差几天，带小数。时刻的写法是 "2018-06-21 21:04:55"，都是 UTC。"""
-    seconds = (datetime.fromisoformat(end) - datetime.fromisoformat(start)).total_seconds()
+    seconds = (
+        datetime.fromisoformat(end) - datetime.fromisoformat(start)
+    ).total_seconds()
     return round(seconds / SECONDS_PER_DAY, 4)
 
 
