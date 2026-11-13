@@ -122,7 +122,11 @@ def crawl_conn():
     conn = sqlite3.connect(":memory:")
     conn.execute(store_items.CREATE_ITEMS_SQL)
     with conn:
-        conn.execute("INSERT INTO raw_store_items VALUES (220, 'Half-Life 2', 0, 0, 0, 0, 9.99, 'x')")
+        conn.execute(
+            "INSERT INTO raw_store_items (appid, name, app_type, is_free, release_ts,"
+            " is_early_access, initial_price_usd, fetched_at)"
+            " VALUES (220, 'Half-Life 2', 0, 0, 0, 0, 9.99, 'x')"
+        )
     return conn
 
 

@@ -17,7 +17,9 @@ def make_conn(items, tags):
     conn.executemany("INSERT INTO raw_tag_names VALUES (?, ?)", TAG_NAMES)
     for appid, app_type, release_ts in items:
         conn.execute(
-            "INSERT INTO raw_store_items VALUES (?, ?, ?, 0, ?, 0, 9.99, '2026-11-01 00:00:00')",
+            "INSERT INTO raw_store_items (appid, name, app_type, is_free, release_ts,"
+            " is_early_access, initial_price_usd, fetched_at)"
+            " VALUES (?, ?, ?, 0, ?, 0, 9.99, '2026-11-01 00:00:00')",
             (appid, f"name{appid}", app_type, release_ts),
         )
     conn.executemany("INSERT INTO raw_store_tags VALUES (?, ?, ?, ?)", tags)
