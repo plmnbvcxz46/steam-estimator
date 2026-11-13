@@ -103,7 +103,7 @@ docs/                                    # 设计、推导、devlog
 | `raw_tag_names` | `tagid` | `name`（标签的英文名） |
 | `raw_review_counts` | `(appid, cutoff_date, query)` | `total`（评测数）、`positive`（其中好评数）；`query` 为请求口径的英文标签：`all`（全部）、`steam_purchase`（Steam 内购买）、`post_policy`（政策后）、`lang:<Steam 语言代码>`（某语言）；一次请求一行 |
 | `raw_review_windows` | `(appid, cutoff_date, window)` | 评测抽样把截止日前的时间分成 5 段，一段一行：`window`（段号 1 到 5，按时间先后）、`start_ts`、`end_ts`（这一段的起止时刻，Unix 秒，两端都含）、`total`（这一段里的评测总数）、`fetched_at` |
-| `raw_review_sample` | `(appid, cutoff_date, review_id)` | 抽到的评测，一条一行：`review_id`（接口的 `recommendationid`）、`window`（属于第几段）、`created_at`（写评测的时刻，UTC）、`playtime_at_review_min`（写评测时的游玩分钟数）、`playtime_forever_min`（采集当天的总游玩分钟数，只存档）。不存评测正文 |
+| `raw_reviews` | `(appid, cutoff_date, review_id)` | 抽到的评测，一条一行：`review_id`（接口的 `recommendationid`）、`window`（属于第几段）、`created_at`（写评测的时刻，UTC）、`playtime_at_review_min`（写评测时的游玩分钟数）、`playtime_forever_min`（采集当天的总游玩分钟数，只存档）。不存评测正文 |
 | `raw_charts_monthly` | `(appid, month)` | `avg_players` |
 | `raw_itad_ids` | `appid` | `itad_id`（ITAD 的游戏编号，未收录时为空）；查历史价格前先用它把 `appid` 换成 ITAD 编号 |
 | `raw_price_history` | `(appid, country, changed_at, regular, price)` | 一次价格变动一行，只记变动之后的状态：`currency`、`price`（实付价）、`regular`（当时的标价，不打折时卖多少）、`cut`（折扣百分比）、`fetched_at`。有的游戏 ITAD 同时跟踪两个 Steam 购买项，同一时刻有两条原价不同的记录，接口不标明属于哪个购买项，所以主键带上 `regular` 和 `price`，两条都存，选哪条留给 `pipeline`。不存“上一个价格”和“结束时间”：上一个价格就是上一行的 `price`，一条记录的状态持续到下一条记录的 `changed_at` 为止。`changed_at` 为变动时刻，入库时统一换成 UTC；`country` 暂时只采 `US`；存全部历史，截止日筛选留给 `pipeline`。只存 Steam 商店（ITAD 商店编号 61）的记录 |
