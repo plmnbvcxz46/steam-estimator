@@ -31,11 +31,21 @@ def test_parse_paid_game():
         "is_free": 0,
         "is_early_access": 0,
         "release_ts": 1456509578,
+        "original_release_ts": None,  # 没转过正式版，接口不给最早上架时刻
         "initial_price_usd": 14.99,  # 接口给的是美分 "1499"
     }
     assert len(tag_rows) == 20
     # 第一个标签权重最高，排第 1
     assert tag_rows[0] == {"appid": 413150, "tagid": 87918, "weight": 859, "position": 1}
+
+
+def test_parse_keeps_original_release_time():
+    # Space Engineers 2013-10 开始抢先体验，2019-02 转正式版；接口的真实返回是这样
+    item = item_of(413150)
+    item["release"] = {"steam_release_date": 1551376786, "original_steam_release_date": 1382550972}
+    row, _ = parse_item(item)
+    assert row["release_ts"] == 1551376786
+    assert row["original_release_ts"] == 1382550972
 
 
 def test_free_game_has_no_price_even_with_purchase_options():
@@ -128,3 +138,43 @@ def test_recrawl_replaces_old_tags():
 
     tag_count = conn.execute("SELECT COUNT(*) FROM raw_store_tags").fetchone()[0]
     assert tag_count == 3
+
+
+def test_old_table_gets_the_new_column():
+    # 全量采集时的表还没有 original_release_ts；建表时要补上这一列，原有的行不受影响
+    conn = sqlite3.connect(":memory:")
+    conn.execute(
+        "CREATE TABLE raw_store_items (appid INTEGER PRIMARY KEY, name TEXT NOT NULL,"
+        " app_type INTEGER NOT NULL, is_free INTEGER NOT NULL, release_ts INTEGER,"
+        " is_early_access INTEGER NOT NULL, initial_price_usd REAL, fetched_at TEXT NOT NULL)"
+    )
+    conn.execute("INSERT INTO raw_store_items VALUES (440, 'Team Fortress 2', 0, 1, 1191999600, 0, NULL, 't0')")
+
+    store_items.ensure_tables(conn)
+
+    row = conn.execute("SELECT name, release_ts, original_release_ts FROM raw_store_items").fetchone()
+    assert row == ("Team Fortress 2", 1191999600, None)
+
+
+def test_backfill_updates_only_original_release(monkeypatch):
+    conn = sqlite3.connect(":memory:")
+    monkeypatch.setattr(store_items, "get_json", fake_get_json_factory())
+    store_items.crawl_store_items(conn, BATCH_APPIDS)
+    before = conn.execute("SELECT appid, name, release_ts, fetched_at FROM raw_store_items ORDER BY appid").fetchall()
+
+    # 补采时 413150 带上了最早上架时刻（数值取自 Space Engineers 的真实返回）
+    def fake_get_json(url, params=None, min_interval=None):
+        asked = [entry["appid"] for entry in json.loads(params["input_json"])["ids"]]
+        items = [item_of(appid) for appid in asked]
+        for item in items:
+            if item["id"] == 413150:
+                item["release"]["original_steam_release_date"] = 1382550972
+        return {"response": {"store_items": items}}
+
+    monkeypatch.setattr(store_items, "get_json", fake_get_json)
+    store_items.backfill_original_release(conn)
+
+    after = conn.execute("SELECT appid, name, release_ts, fetched_at FROM raw_store_items ORDER BY appid").fetchall()
+    assert after == before  # 别的列一律不动，包括 fetched_at
+    originals = dict(conn.execute("SELECT appid, original_release_ts FROM raw_store_items"))
+    assert originals == {440: None, 1200: None, 413150: 1382550972, 639840: None}

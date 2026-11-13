@@ -39,7 +39,8 @@ CREATE TABLE IF NOT EXISTS raw_store_items (
     release_ts        INTEGER,
     is_early_access   INTEGER NOT NULL,
     initial_price_usd REAL,
-    fetched_at        TEXT NOT NULL
+    fetched_at        TEXT NOT NULL,
+    original_release_ts INTEGER
 )
 """
 
@@ -62,9 +63,11 @@ CREATE TABLE IF NOT EXISTS raw_tag_names (
 
 INSERT_ITEM_SQL = """
 INSERT OR REPLACE INTO raw_store_items
-    (appid, name, app_type, is_free, release_ts, is_early_access, initial_price_usd, fetched_at)
+    (appid, name, app_type, is_free, release_ts, original_release_ts,
+     is_early_access, initial_price_usd, fetched_at)
 VALUES
-    (:appid, :name, :app_type, :is_free, :release_ts, :is_early_access, :initial_price_usd, :fetched_at)
+    (:appid, :name, :app_type, :is_free, :release_ts, :original_release_ts,
+     :is_early_access, :initial_price_usd, :fetched_at)
 """
 
 INSERT_TAG_SQL = """
@@ -117,6 +120,9 @@ def parse_item(item):
         "is_early_access": int(item.get("is_early_access", False)),
         # 未定档的游戏没有上架时间
         "release_ts": item["release"].get("steam_release_date"),
+        # 抢先体验转正式版等情况下，商店会把 steam_release_date 改成后来的日期，
+        # 这个字段留着最早上架的那一刻。只有部分游戏有，没有就是 None
+        "original_release_ts": item["release"].get("original_steam_release_date"),
         "initial_price_usd": pick_price_usd(item),
     }
 
@@ -174,6 +180,12 @@ def save_batch(conn, appids, items):
 def ensure_tables(conn):
     crawl_log.ensure_table(conn)
     conn.execute(CREATE_ITEMS_SQL)
+    # original_release_ts 是全量采完后才加的列。CREATE TABLE IF NOT EXISTS 碰到已有的表
+    # 什么都不做，所以老库里的表要单独补上这一列；新加的列排在最后，
+    # 建表语句里也把它写在最后，新库和老库的列顺序才一样
+    columns = [row[1] for row in conn.execute("PRAGMA table_info(raw_store_items)")]
+    if "original_release_ts" not in columns:
+        conn.execute("ALTER TABLE raw_store_items ADD COLUMN original_release_ts INTEGER")
     conn.execute(CREATE_TAGS_SQL)
     conn.execute(CREATE_TAG_NAMES_SQL)
 
@@ -216,6 +228,43 @@ def crawl_store_items(conn, appids):
         )
 
 
+def backfill_original_release(conn):
+    """给已经采过的游戏补上 original_release_ts 这一列，别的列一律不动。
+
+    已采的游戏在采集日志里都有定论，正常重跑会跳过它们，所以单独写这个函数：
+    把表里已有的游戏重新请求一遍，只更新这一列，fetched_at 也不改。
+    一共只有几十次请求，所以不记采集日志、不做续传：中途失败就整个重跑，
+    UPDATE 重复执行结果一样。
+    """
+    ensure_tables(conn)
+    appids = [appid for (appid,) in conn.execute("SELECT appid FROM raw_store_items ORDER BY appid")]
+    filled_count = 0
+    for start in range(0, len(appids), BATCH_SIZE):
+        batch = appids[start : start + BATCH_SIZE]
+        params = {"input_json": json.dumps(build_input_json(batch))}
+        response = get_json(ITEMS_URL, params=params, min_interval=MIN_INTERVAL)
+        items = response["response"]["store_items"]
+        if [item.get("id") for item in items] != batch:
+            raise ValueError("返回的游戏和请求的游戏对不上")
+
+        with conn:
+            for appid, item in zip(batch, items):
+                if item["success"] != RESULT_OK:
+                    # 采完之后才下架的游戏查不到了，这一列留空
+                    logger.info("appid=%d 现在查不到了，最早上架时刻留空", appid)
+                    continue
+                original = item["release"].get("original_steam_release_date")
+                conn.execute(
+                    "UPDATE raw_store_items SET original_release_ts = ? WHERE appid = ?",
+                    (original, appid),
+                )
+                if original is not None:
+                    filled_count += 1
+        logger.info("补最早上架时刻 %d/%d", start + len(batch), len(appids))
+
+    logger.info("补完：%d 款里 %d 款有最早上架时刻", len(appids), filled_count)
+
+
 def save_tag_names(conn, tags):
     """把标签名单写进 raw_tag_names。tags 是接口返回的列表，每项有 tagid 和 name。"""
     rows = [(tag["tagid"], tag["name"]) for tag in tags]
@@ -235,11 +284,15 @@ def crawl_tag_names(conn):
 
 
 def main():
-    """命令行入口：python -m crawler.sources.store_items [数量]，不写数量就爬全部"""
+    """命令行入口：python -m crawler.sources.store_items [数量] [--backfill-original-release]"""
     parser = argparse.ArgumentParser(description="采集 Steam 商店信息和标签")
     parser.add_argument(
         "limit", type=int, nargs="?", default=None,
         help="从 Ars 表里取多少个 appid 来爬；不写则爬全部",
+    )
+    parser.add_argument(
+        "--backfill-original-release", action="store_true",
+        help="只给表里已有的游戏补 original_release_ts 这一列，不做别的",
     )
     args = parser.parse_args()
 
@@ -247,6 +300,9 @@ def main():
 
     conn = sqlite3.connect(DB_PATH)
     try:
+        if args.backfill_original_release:
+            backfill_original_release(conn)
+            return
         crawl_store_items(conn, pick_appids(conn, args.limit))
         crawl_tag_names(conn)
     finally:

@@ -1,23 +1,34 @@
 import sqlite3
 
-from crawler.sources import store_items
-from pipeline.games import build_cleaned_games, clean_tags, release_ts_to_date
+from crawler.sources import reviews, store_items
+from pipeline.games import build_cleaned_games, clean_tags, pick_release, release_ts_to_date
 
 # 测试用的标签表，名字和 tagid 取自真实的 raw_tag_names
 TAG_NAMES = [(113, "Free to Play"), (493, "Early Access"), (492, "Indie"), (597, "Casual"), (9, "Strategy")]
 
 
-def make_conn(items, tags):
+def make_conn(items, tags, first_reviews=()):
     """建一个内存数据库并放进测试行。
 
-    items 每行是 (appid, app_type, release_ts)；tags 每行是 (appid, tagid, weight, position)。
+    items 每行是 (appid, app_type, release_ts)；tags 每行是 (appid, tagid, weight, position)；
+    first_reviews 每行是 (appid, created_at)，每款放一条评测就够了。
     """
     conn = sqlite3.connect(":memory:")
     store_items.ensure_tables(conn)
+    conn.execute(reviews.CREATE_SAMPLE_SQL)
+    for appid, created_at in first_reviews:
+        conn.execute(
+            "INSERT INTO raw_reviews (appid, cutoff_date, review_id, window, created_at,"
+            " playtime_at_review_min, playtime_forever_min)"
+            " VALUES (?, '2018-07-01', '1', 1, ?, 60, 60)",
+            (appid, created_at),
+        )
     conn.executemany("INSERT INTO raw_tag_names VALUES (?, ?)", TAG_NAMES)
     for appid, app_type, release_ts in items:
         conn.execute(
-            "INSERT INTO raw_store_items VALUES (?, ?, ?, 0, ?, 0, 9.99, '2026-11-01 00:00:00')",
+            "INSERT INTO raw_store_items (appid, name, app_type, is_free, release_ts,"
+            " is_early_access, initial_price_usd, fetched_at)"
+            " VALUES (?, ?, ?, 0, ?, 0, 9.99, '2026-11-01 00:00:00')",
             (appid, f"name{appid}", app_type, release_ts),
         )
     conn.executemany("INSERT INTO raw_store_tags VALUES (?, ?, ?, ?)", tags)
@@ -81,3 +92,41 @@ def test_build_twice_rebuilds_from_scratch():
         conn.execute("DELETE FROM raw_store_items WHERE appid = 11")
     build_cleaned_games(conn)
     assert [row[0] for row in cleaned_rows(conn)] == [10]
+
+
+# 2014-05-29 07:34:46 UTC，SNOW 抽到的最早一条评测
+SNOW_FIRST_REVIEW_TS = 1401348886
+
+
+def test_pick_release_takes_the_earliest():
+    # Space Engineers：商店写 2019-02 转正式版，最早上架时刻是 2013-10 开始抢先体验
+    assert pick_release(1551376786, 1382550972, 1410274350) == (1382550972, "store_original")
+    # SNOW：商店写 2019-02，接口没给最早上架时刻，但 2014 年就有评测
+    assert pick_release(1550158980, None, SNOW_FIRST_REVIEW_TS) == (SNOW_FIRST_REVIEW_TS, "first_review")
+    # 普通游戏：先上架，后有评测
+    assert pick_release(1456509578, None, 1456509578 + 3600) == (1456509578, "store")
+    # 什么都没有
+    assert pick_release(None, None, None) == (None, None)
+
+
+def test_build_uses_earliest_release_time():
+    conn = make_conn(
+        [
+            (10, 0, 1456509578),  # 普通游戏
+            (20, 0, 1550158980),  # 像 SNOW：评测比商店日期早
+            (30, 0, 0),  # 商店没填上架日，但有评测（真实库里有 33 款）
+        ],
+        [],
+        first_reviews=[
+            (10, "2016-02-27 00:00:00"),
+            (20, "2014-05-29 07:34:46"),
+            (30, "2014-05-29 07:34:46"),
+        ],
+    )
+    build_cleaned_games(conn)
+    rows = conn.execute("SELECT appid, release_date, release_date_source FROM cleaned_games ORDER BY appid")
+    assert rows.fetchall() == [
+        (10, "2016-02-26", "store"),
+        (20, "2014-05-29", "first_review"),  # 07:34 UTC 是太平洋时间当天 00:34
+        (30, "2014-05-29", "first_review"),
+    ]
