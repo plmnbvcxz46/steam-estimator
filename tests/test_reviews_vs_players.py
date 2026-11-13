@@ -1,18 +1,29 @@
-"""探查图的取数：评测数读清洗表，查不到评测数的游戏不出现。"""
+"""探查图的取数：读样本表的训练行。"""
 
 import sqlite3
 
-from viz.reviews_vs_players import load_points
+from pipeline import samples
+from viz.reviews_vs_players import fit_fixed_multiplier, load_points
 
 
-def test_load_points_reads_cleaned_table_and_skips_games_without_counts():
+def test_load_points_reads_train_rows_of_sample_table():
     conn = sqlite3.connect(":memory:")
-    conn.execute("CREATE TABLE raw_ars_players_2018 (appid INTEGER PRIMARY KEY, players INTEGER)")
+    conn.execute(samples.CREATE_TABLE_SQL)
     conn.execute(
-        "CREATE TABLE cleaned_review_counts (appid INTEGER, cutoff_date TEXT, total_reviews INTEGER)"
+        "INSERT INTO cleaned_samples (sample_id, appid, cutoff_date, split, truth_value, total_reviews)"
+        " VALUES ('train:10:2018-07-01', 10, '2018-07-01', 'train', 5000, 120)"
     )
-    # 20 号游戏已下架或评测数为 0，清洗表里没有它
-    conn.execute("INSERT INTO raw_ars_players_2018 VALUES (10, 5000), (20, 300)")
-    conn.execute("INSERT INTO cleaned_review_counts VALUES (10, '2018-07-01', 120)")
 
     assert load_points(conn) == [(10, 120, 5000)]
+
+
+def test_fixed_multiplier_ignores_games_below_review_threshold():
+    # 两款 10 条以上的 k 是 50 和 200，ln k 平均后换回来是 100；
+    # 5 条评测的那款 k 再大也不算进去
+    points = [(1, 10, 500), (2, 10, 2000), (3, 5, 99999)]
+
+    multiplier, in_band_rate = fit_fixed_multiplier(points)
+
+    assert round(multiplier, 6) == 100
+    # 估计 100 对真值 50（估计是真值 2 倍）和 200（0.5 倍），都不在带里
+    assert in_band_rate == 0
