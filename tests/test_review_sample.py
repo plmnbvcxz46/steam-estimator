@@ -1,3 +1,8 @@
+import json
+import sqlite3
+
+from crawler.http import CrawlError
+from crawler.sources import review_sample, store_items
 from crawler.sources.review_sample import make_windows, parse_window
 
 CUTOFF = "2018-07-01"
@@ -79,3 +84,71 @@ def test_parse_empty_window_has_no_reviews_key():
 def test_parse_delisted_game_returns_none():
     assert parse_window({"response": {}}) is None
 
+
+
+# ---- 采集主循环：用假的 get_json 代替联网，数据库用内存临时库 ----
+
+
+def fake_get_json_factory(fail_windows=()):
+    """假的 get_json：每段回一条评测，总数按段号给（第 1 段 10 条、第 2 段 20 条……）。
+
+    靠请求里的 date_range_start 认出是第几段；calls 记下每次请求的 (appid, 段起点)。
+    fail_windows 里的段模拟超时。
+    """
+    calls = []
+
+    def fake_get_json(url, params=None, min_interval=None):
+        query = json.loads(params["input_json"])
+        appid = query["appid"]
+        start = query["date_range_start"]
+        calls.append((appid, start))
+        windows = make_windows(None, CUTOFF)
+        window = [w for w, s, _ in windows if s == start][0]
+        if window in fail_windows:
+            raise CrawlError("timeout", "模拟超时")
+        return {
+            "response": {
+                "query_summary": {"total_reviews": window * 10},
+                "reviews": [review(f"{appid}-{window}", query["date_range_end"], 60, 120)],
+            }
+        }
+
+    fake_get_json.calls = calls
+    return fake_get_json
+
+
+def crawl_conn():
+    """一个有商店表的内存库；220 没给上架时刻（为 0），按评测系统上线日切段，好让假接口认段。"""
+    conn = sqlite3.connect(":memory:")
+    conn.execute(store_items.CREATE_ITEMS_SQL)
+    with conn:
+        conn.execute("INSERT INTO raw_store_items VALUES (220, 'Half-Life 2', 0, 0, 0, 0, 9.99, 'x')")
+    return conn
+
+
+def test_crawl_writes_windows_and_reviews(monkeypatch):
+    conn = crawl_conn()
+    monkeypatch.setattr(review_sample, "get_json", fake_get_json_factory())
+
+    review_sample.crawl_review_sample(conn, [220], CUTOFF)
+
+    windows = conn.execute("SELECT window, total FROM raw_review_windows ORDER BY window").fetchall()
+    assert windows == [(1, 10), (2, 20), (3, 30), (4, 40), (5, 50)]
+    reviews = conn.execute("SELECT review_id, window FROM raw_review_sample ORDER BY window").fetchall()
+    assert reviews == [("220-1", 1), ("220-2", 2), ("220-3", 3), ("220-4", 4), ("220-5", 5)]
+
+
+def test_crawl_retries_only_failed_windows(monkeypatch):
+    conn = crawl_conn()
+    monkeypatch.setattr(review_sample, "get_json", fake_get_json_factory(fail_windows=(3,)))
+    review_sample.crawl_review_sample(conn, [220], CUTOFF)
+    assert conn.execute("SELECT COUNT(*) FROM raw_review_windows").fetchone()[0] == 4
+
+    # 重跑：成功的 4 段已有定论，只该再请求第 3 段
+    fake = fake_get_json_factory()
+    monkeypatch.setattr(review_sample, "get_json", fake)
+    review_sample.crawl_review_sample(conn, [220], CUTOFF)
+
+    third_start = make_windows(None, CUTOFF)[2][1]
+    assert fake.calls == [(220, third_start)]
+    assert conn.execute("SELECT COUNT(*) FROM raw_review_windows").fetchone()[0] == 5
