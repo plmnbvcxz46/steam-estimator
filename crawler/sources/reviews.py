@@ -238,11 +238,11 @@ def fetch_job(job):
         logger.warning(
             "appid=%d 第 %d 段解析失败，缺少或错误的字段: %r", appid, window, err
         )
-        result["status"] = "parse_error"
+        result["status"] = crawl_log.PARSE_ERROR
         return result
 
     if parsed is None:
-        result["status"] = "未收录"
+        result["status"] = crawl_log.NOT_FOUND
         return result
 
     result["status"] = 200
@@ -315,7 +315,10 @@ def main():
         help="从 Ars 表里取多少个 appid；不写则全部",
     )
     parser.add_argument(
-        "--cutoff", default=review_counts.DEFAULT_CUTOFF, help="截止日，格式 YYYY-MM-DD"
+        "--cutoff",
+        type=review_counts.parse_cutoff,
+        default=review_counts.DEFAULT_CUTOFF,
+        help="截止日，格式 YYYY-MM-DD",
     )
     parser.add_argument(
         "--workers", type=int, default=1, help="同时发请求的线程数，默认 1"

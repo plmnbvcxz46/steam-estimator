@@ -98,6 +98,16 @@ VALUES (:appid, :cutoff_date, :query, :total, :positive, :fetched_at)
 """
 
 
+def parse_cutoff(text):
+    """把命令行传进来的截止日统一成 YYYY-MM-DD。
+
+    strptime 很宽松，"2018-7-1" 也能解析。但截止日是原样存进表里的，后面的清洗和画图
+    都按 '2018-07-01' 这个字符串来查，存成 "2018-7-1" 就会查不到，而且不报错。
+    格式完全不对时 strptime 会抛 ValueError，argparse 会把它显示成参数错误。
+    """
+    return datetime.strptime(text, "%Y-%m-%d").strftime("%Y-%m-%d")
+
+
 def cutoff_ts(cutoff_date):
     """'2018-07-01' -> 当天零点（UTC）的 Unix 时间戳（整数）。
 
@@ -225,13 +235,13 @@ def fetch_job(job):
         logger.warning(
             "appid=%d 口径=%s 解析失败，缺少或错误的字段: %r", appid, query, err
         )
-        result["status"] = "parse_error"
+        result["status"] = crawl_log.PARSE_ERROR
         return result
 
     if summary is None:
         # “未收录”是有定论的结局，重跑时会跳过（见 crawl_log.DONE_STATUSES）
         logger.info("appid=%d 口径=%s 游戏已下架，接口返回为空", appid, query)
-        result["status"] = "未收录"
+        result["status"] = crawl_log.NOT_FOUND
         return result
 
     total, positive = summary
@@ -307,7 +317,7 @@ def main():
         help="从 Ars 表里取多少个 appid 来爬；不写则爬全部",
     )
     parser.add_argument(
-        "--cutoff", default=DEFAULT_CUTOFF, help="截止日，格式 YYYY-MM-DD"
+        "--cutoff", type=parse_cutoff, default=DEFAULT_CUTOFF, help="截止日，格式 YYYY-MM-DD"
     )
     parser.add_argument(
         "--workers",

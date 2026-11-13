@@ -82,7 +82,9 @@ def _request_json(method, url, params, body, min_interval):
             resp = _session.request(method, url, params=params, json=body, timeout=TIMEOUT)
         except requests.Timeout:
             status = "timeout"
-        except requests.ConnectionError:
+        except requests.RequestException:
+            # 连不上、读到一半断开等其余网络问题都算在这里。
+            # Timeout 也是 RequestException 的一种，所以必须写在它前面。
             status = "network"
         else:
             if resp.status_code == 200:

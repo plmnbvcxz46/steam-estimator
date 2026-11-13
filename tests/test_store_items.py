@@ -2,7 +2,6 @@ import json
 import sqlite3
 from pathlib import Path
 
-from crawler import crawl_log
 from crawler.http import CrawlError
 from crawler.sources import store_items
 from crawler.sources.store_items import parse_item
