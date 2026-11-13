@@ -20,6 +20,9 @@
 """
 
 import logging
+from datetime import UTC, datetime
+
+from crawler.sources import review_counts
 
 logger = logging.getLogger(__name__)
 
@@ -76,10 +79,39 @@ def make_windows(release_ts, cutoff_date):
     第一段的 start_ts 改成 1，早于上架时刻的评测（抢先体验、预购）也算进第一段。
     下一段从上一段的 end_ts + 1 开始，同一条评测不会落进两段。
     """
+    # 接口的日期范围两端都含（实测：start 和 end 都等于某条评测的时刻时，能查到这一条）。
+    # 最后一段的终点和评测计数一样用截止日零点，5 段的总数加起来应等于计数里的“全部”
+    end = review_counts.cutoff_ts(cutoff_date)
+    # cutoff_ts 就是“日期 -> 当天零点的时间戳”，这里借来换算评测系统上线日
+    review_start = review_counts.cutoff_ts(REVIEW_SYSTEM_START)
+
+    if release_ts is not None and review_start <= release_ts < end:
+        start = release_ts
+    else:
+        start = review_start
+
+    # 段与段的分界点：start、四个中间点、end，一共 6 个
+    edges = []
+    for i in range(WINDOW_COUNT + 1):
+        edges.append(start + (end - start) * i // WINDOW_COUNT)
+
+    windows = []
+    for i in range(WINDOW_COUNT):
+        if i == 0:
+            window_start = 1  # 不能传 0，0 会被当成“没传”
+        else:
+            window_start = edges[i] + 1
+        windows.append((i + 1, window_start, edges[i + 1]))
+    return windows
 
 
 def build_input_json(appid, cutoff_date, start_ts, end_ts):
     """组装一段的请求参数：沿用 review_counts 的，只改每页条数和日期范围。"""
+    params = review_counts.build_input_json(appid, cutoff_date)
+    params["num_per_page"] = PER_PAGE
+    params["date_range_start"] = start_ts
+    params["date_range_end"] = end_ts
+    return params
 
 
 def parse_window(response):
@@ -87,6 +119,30 @@ def parse_window(response):
 
     每条评测只留 review_id、created_at、两个时长。
     """
+    body = response["response"]
+    if body == {}:
+        return None  # 已下架的游戏返回 {"response": {}}，和评测计数一样
+    total = body["query_summary"]["total_reviews"]
+
+    reviews = []
+    # 这一段一条评测都没有时，返回里没有 "reviews" 这个键，不是空列表
+    for review in body.get("reviews", []):
+        author = review["author"]
+        reviews.append(
+            {
+                "review_id": review["recommendationid"],
+                "created_at": ts_to_utc_str(review["timestamp_created"]),
+                # 有的评测不带写评测时的时长（实测 2016 年的一段里缺 4 到 25 条），存空
+                "playtime_at_review_min": author.get("playtime_at_review"),
+                "playtime_forever_min": author["playtime_forever"],
+            }
+        )
+    return total, reviews
+
+
+def ts_to_utc_str(timestamp):
+    """Unix 秒 -> "2018-06-30 23:34:19"（UTC），写法和其他表的时刻一样。"""
+    return datetime.fromtimestamp(timestamp, UTC).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def make_request_key(appid, cutoff_date, window):
