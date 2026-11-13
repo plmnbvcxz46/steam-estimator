@@ -1,6 +1,6 @@
 import sqlite3
 
-from crawler.sources import ars
+from crawler.sources import ars, reviews
 from pipeline import games, review_counts
 from pipeline.samples.build import build_samples
 from pipeline.samples.review_count_features import review_count_features
@@ -9,11 +9,14 @@ CUTOFF = "2018-07-01"
 
 
 def make_conn():
-    """建好样本表要读的三张上游表，空的。"""
+    """建好样本表要读的上游表，空的。"""
     conn = sqlite3.connect(":memory:")
     conn.execute(ars.CREATE_TABLE_SQL)
     conn.execute(games.CREATE_TABLE_SQL)
     conn.execute(review_counts.CREATE_TABLE_SQL)
+    # 评测抽样的两张表：这里的游戏都没抽到评测，时长为空
+    conn.execute(reviews.CREATE_WINDOWS_SQL)
+    conn.execute(reviews.CREATE_SAMPLE_SQL)
     return conn
 
 

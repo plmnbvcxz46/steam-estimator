@@ -23,6 +23,7 @@ import sqlite3
 from common.log import setup_logging
 from common.paths import DB_PATH
 from pipeline.review_counts import LANGUAGES
+from pipeline.samples.playtime_features import load_playtime_inputs, playtime_features
 from pipeline.samples.review_count_features import review_count_features
 
 logger = logging.getLogger(__name__)
@@ -55,7 +56,9 @@ CREATE TABLE cleaned_samples (
     share_spanish        REAL NOT NULL,
     share_tchinese       REAL NOT NULL,
     share_turkish        REAL NOT NULL,
-    share_other          REAL NOT NULL
+    share_other          REAL NOT NULL,
+    playtime_median_hrs  REAL,
+    sample_n             INTEGER NOT NULL
 )
 """
 
@@ -74,6 +77,8 @@ SAMPLE_COLUMNS = [
 for language in LANGUAGES:
     SAMPLE_COLUMNS.append("share_" + language)
 SAMPLE_COLUMNS.append("share_other")
+SAMPLE_COLUMNS.append("playtime_median_hrs")
+SAMPLE_COLUMNS.append("sample_n")
 
 INSERT_SQL = (
     "INSERT INTO cleaned_samples (" + ", ".join(SAMPLE_COLUMNS) + ")"
@@ -120,6 +125,9 @@ def load_train_rows(conn):
         (TRAIN_CUTOFF, TRAIN_CUTOFF),
     ).fetchall()
 
+    # 算时长要用的抽样数据，一次读完
+    window_totals, playtimes = load_playtime_inputs(conn, TRAIN_CUTOFF)
+
     rows = []
     for raw_row in raw_rows:
         appid, players, total_reviews, positive_reviews, steam_purchase_reviews = raw_row[:5]
@@ -139,6 +147,8 @@ def load_train_rows(conn):
                 total_reviews, positive_reviews, steam_purchase_reviews, language_reviews
             )
         )
+        # 一条有时长的评测都没抽到的游戏，两个字典里都没有它，给空的
+        row.update(playtime_features(window_totals.get(appid, {}), playtimes.get(appid, [])))
         rows.append(row)
     return rows
 
