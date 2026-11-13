@@ -101,7 +101,7 @@ docs/                                    # 设计、推导、devlog
 | 表 | 主键 | 字段 |
 | --- | --- | --- |
 | `raw_ars_players_2018` | `appid` | `title`、`players` |
-| `raw_store_items` | `appid` | `name`、`app_type`（接口给的数字代码：0 是游戏，其他数字是软件、DLC、原声带等）、`is_free`、`release_ts`（在 Steam 上架的时刻，Unix 秒；未定档时为空）、`is_early_access`（采集当天是否在抢先体验）、`initial_price_usd`（当前原价；取购买项里第一个单独的包，不取捆绑包；免费或已停售时为空） |
+| `raw_store_items` | `appid` | `name`、`app_type`（接口给的数字代码：0 是游戏，其他数字是软件、DLC、原声带等）、`is_free`、`release_ts`（在 Steam 上架的时刻，Unix 秒；未定档时为空）、`original_release_ts`（最早在 Steam 上架的时刻，Unix 秒；抢先体验转正式版等情况下商店会把 `release_ts` 改成后来的日期，这一列留着最早的那个；接口只对部分游戏给，没有时为空；全量采完后才加的列，已采的游戏单独补采过一次）、`is_early_access`（采集当天是否在抢先体验）、`initial_price_usd`（当前原价；取购买项里第一个单独的包，不取捆绑包；免费或已停售时为空） |
 | `raw_store_tags` | `(appid, tagid)` | 一款游戏的一个标签一行，每款最多取权重最高的 20 个：`weight`（权重，打这个标签的人越多越大）、`position`（按权重从高到低排第几，从 1 开始） |
 | `raw_tag_names` | `tagid` | `name`（标签的英文名） |
 | `raw_review_counts` | `(appid, cutoff_date, query)` | `total`（评测数）、`positive`（其中好评数）；`query` 为请求口径的英文标签：`all`（全部）、`steam_purchase`（Steam 内购买）、`post_policy`（政策后，指 2019-11-01 Steam 评测政策变化后的口径；未采，等近年真值表导入后再加）、`lang:<Steam 语言代码>`（某语言）；一次请求一行 |
@@ -119,7 +119,7 @@ docs/                                    # 设计、推导、devlog
 
 | 表 | 主键 | 字段 |
 | --- | --- | --- |
-| `cleaned_games` | `appid` | 只含游戏，一款一行：`name`、`release_date`（由商店时间戳按美国太平洋时间转成日期）、`release_date_source`（`store` 商店 / 第一条评测，后者未实现）、`tags`（标签名按权重从高到低用 `\|` 连接，已去掉状态词）。没有发行日的游戏不写入，记日志 |
+| `cleaned_games` | `appid` | 只含游戏，一款一行：`name`、`release_date`（上架日：商店上架时刻、最早上架时刻、抽到的最早评测时刻三者取最早，按美国太平洋时间转成日期）、`release_date_source`（三者里最早的是哪个：`store` / `store_original` / `first_review`）、`tags`（标签名按权重从高到低用 `\|` 连接，已去掉状态词）。没有发行日的游戏不写入，记日志 |
 | `cleaned_review_counts` | `(appid, cutoff_date)` | 把 `raw_review_counts` 里一款游戏的 15 行（15 个口径）合成一行，存条数不存占比，占比在建样本表（`cleaned_samples`，一款游戏一行、汇总特征和划分的宽表）时再算：`total_reviews`（评测数）、`positive_reviews`（其中好评数）、`steam_purchase_reviews`（Steam 内购买的评测数）、`reviews_<Steam 语言代码>`（13 种语言各一列，如 `reviews_schinese`）。评测数为 0 的不写入，按个数记日志；非游戏不在这里排除，建样本表时用 `cleaned_games` 过滤；某款的口径不足 15 个说明采集没跑完，直接报错 |
 | `cleaned_prices` | `(appid, started_at, regular, price)` | 把价格变动点变成时间段，raw 表一个变动点对应一段，行数相同：`started_at`（变动时刻）、`ended_at`（这款游戏下一个不同变动时刻；最后一段用这款的采集时刻 `fetched_at`）、`regular`（原价）、`price`（实付价）、`cut`（折扣百分比）、`days`（持续天数，可带小数）。不按截止日截取，存完整历史；同一时刻的多条记录都保留，共用同一段时间；不选线、不截断，这些取舍放在建样本表时。不按天铺开：全部游戏铺到采集日约 4900 万行 |
 | `cleaned_charts_monthly`（未实现） | `(appid, month)` | `avg_players` |
@@ -172,7 +172,7 @@ docs/                                    # 设计、推导、devlog
 
 - 只按输入侧条件筛选，不按 $k$ 或真值筛选。排除非游戏、零评测、重复、上架晚于截止日的样本。免费游戏保留，用“截止日原价为 0”表示，不另设免费标签。
 - 是否免费按截止日当时判断：历史价格里有截止日的价格时，原价为 0 即免费；查不到时退回用商店信息里当前的 `is_free`。
-- 抢先体验游戏用第一条评测的日期作为上架日（未实现）。
+- 上架日取商店上架时刻、最早上架时刻、抽到的最早评测时刻三者里最早的。抢先体验转正式版、老游戏重新上架时，商店的上架时刻会被改成后来的日期；只用它的话，截止日时还在抢先体验的游戏会被当成“上架晚于截止日”排除（2018 年训练集里有 449 款）。最早上架时刻不是每款都有，所以再拿抽到的最早评测兜底；它不一定是真正的第一条（第一段超过 100 条时只抓了最新的 100 条），日期可能偏晚。
 - 商店信息是采集当天的状态。会随时间变的内容不能当作截止日的情况，要换用带时间的来源：是否免费看历史价格，是否在抢先体验看发行日与评测日期。因此标签里的 `Early Access`、`Free to Play` 这类状态词在清洗时去掉。
 - 游戏的分类用标签，不用开发商填的类型（genres）。标签由开发商先设、玩家投票修正，Steam 自己的推荐和“类似游戏”也按排名前 20 的标签计算；类型只有十来种，区分度低。标签的权重是采集当天的数，会随时间增长，只用来排序和取前几个，数值本身不作特征。
 - 清洗结果只保留能用的行：没有发行日的游戏不写入 `cleaned_games`，记日志。
