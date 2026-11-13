@@ -123,7 +123,7 @@ docs/                                    # 设计、推导、devlog
 | `cleaned_review_counts` | `(appid, cutoff_date)` | 把 `raw_review_counts` 里一款游戏的 15 行（15 个口径）合成一行，存条数不存占比，占比在建样本表（`cleaned_samples`，一款游戏一行、汇总特征和划分的宽表）时再算：`total_reviews`（评测数）、`positive_reviews`（其中好评数）、`steam_purchase_reviews`（Steam 内购买的评测数）、`reviews_<Steam 语言代码>`（13 种语言各一列，如 `reviews_schinese`）。评测数为 0 的不写入，按个数记日志；非游戏不在这里排除，建样本表时用 `cleaned_games` 过滤；某款的口径不足 15 个说明采集没跑完，直接报错 |
 | `cleaned_prices` | `(appid, started_at, regular, price)` | 把价格变动点变成时间段，raw 表一个变动点对应一段，行数相同：`started_at`（变动时刻）、`ended_at`（这款游戏下一个不同变动时刻；最后一段用这款的采集时刻 `fetched_at`）、`regular`（原价）、`price`（实付价）、`cut`（折扣百分比）、`days`（持续天数，可带小数）。不按截止日截取，存完整历史；同一时刻的多条记录都保留，共用同一段时间；不选线、不截断，这些取舍放在建样本表时。不按天铺开：全部游戏铺到采集日约 4900 万行 |
 | `cleaned_charts_monthly`（未实现） | `(appid, month)` | `avg_players` |
-| `cleaned_samples`（未实现） | `sample_id` | 样本：`appid`、`cutoff_date`、`split`（`train` / `calib` / `query`）、`truth_value`（`query` 为空）<br>评测：`total_reviews`、`positive_rate`（好评数 ÷ 评测数）、`steam_purchase_ratio`（Steam 内购买的评测数 ÷ 评测数）、`p_post`、`share_<语言>`（13 种语言各一列，用 Steam 语言代码，如 `share_schinese`）、`share_other`（13 种之外的占比）、`playtime_median_hrs`（评测者写评测时的游玩小时，按段加权的中位数）、`sample_n`（抽到且有时长的评测条数，只作记录，不进模型）<br>价格：`price_at_cutoff_usd`（截止日原价，免费为 0）、`avg_price_usd`（截止日前按天加权的实付价格）、`frac_time_cut25`、`frac_time_cut50`、`frac_time_cut75`（截止日前折扣不低于 25%、50%、75% 的时间占比）；历史价格缺失或截止日后才开始的，这五列都为空<br>其他：`game_age_years`（截止日减上架日，单位年，不取对数、不截断）、`tags`（取自 `cleaned_games.tags`，一列，按权重从高到低用 `\|` 连接，训练时再展开，见“样本表”一节）、`charts_total_hours`（$H$） |
+| `cleaned_samples`（未实现） | `sample_id` | 样本：`appid`、`cutoff_date`、`split`（`train` / `calib` / `query`）、`truth_value`（`query` 为空）<br>评测：`total_reviews`、`positive_rate`（好评数 ÷ 评测数）、`steam_purchase_ratio`（Steam 内购买的评测数 ÷ 评测数）、`p_post`、语言占比 14 列：`share_english`、`share_schinese` 等 13 种语言一种一列（后缀是 Steam 语言代码，存的是占比，不是条数），加 `share_other`（13 种之外的占比）、`playtime_median_hrs`（评测者写评测时的游玩小时，按段加权的中位数）、`sample_n`（抽到且有时长的评测条数，只作记录，不进模型）<br>价格：`price_at_cutoff_usd`（截止日原价，免费为 0）、`avg_price_usd`（截止日前按天加权的实付价格）、`frac_time_cut25`、`frac_time_cut50`、`frac_time_cut75`（截止日前折扣不低于 25%、50%、75% 的时间占比）；历史价格缺失或截止日后才开始的，这五列都为空<br>其他：`game_age_years`（截止日减上架日，单位年，不取对数、不截断）、`tags`（取自 `cleaned_games.tags`，一列，按权重从高到低用 `\|` 连接，训练时再展开，见“样本表”一节）、`charts_total_hours`（$H$） |
 
 **result：分析结果，`viz` 只读。**
 
@@ -224,7 +224,18 @@ docs/                                    # 设计、推导、devlog
 
 树模型用 scikit-learn 的梯度提升回归（`HistGradientBoostingRegressor`）：一棵接一棵地种树，每棵专门修正前面那些树的误差。目标是 $\ln k$ 而不是直接学 $\ln$ 玩家数：评测数也是输入时两者的误差相同，但树模型不会外推，直接学玩家数会严重低估比训练集都大的游戏（实测见 devlog 2026-11-13）。损失取平方误差，衡量的是“差几倍”而不是“差几份”，与命中条件一致。缺失的特征在样本表里存空，不填补，由模型直接处理；评测者时长另附抽到的条数 `sample_n`，让模型自己判断中位数靠不靠谱。超参数只调少数几个（树的数量、深度、学习率），用五折交叉验证选。
 
-训练时用五折交叉验证对比的方案，默认方案之外每次只改一项：标签只看每款前 5 个（约 78 列）；标签门槛提高到 500 款（约 52 列）；不用语言特征；语言只合并西语、其余全拆开（13 列）；去掉时长中位数；评测数门槛取几个更高的候选值。
+样本表的列怎么变成模型输入，在代码里留成参数。先跑默认方案得到基线，之后每次只改一项，用五折交叉验证和基线比：
+
+| 参数 | 默认 | 训练时比较 |
+| --- | --- | --- |
+| 评测数门槛 | 至少 10 条 | 几个更高的候选值 |
+| 标签：至少多少款游戏有才单独成列 | 100（约 192 列） | 500（约 52 列） |
+| 标签：每款取前几个 | 全部（最多 20 个） | 5（约 78 列） |
+| 语言怎么合并 | 9 列 | 不用语言；只合并西语、其余全拆开（13 列） |
+| 评测者时长中位数 | 用 | 不用 |
+| 折扣超过多少天截断 | 30 天 | 不比（截 30 天、60 天、不截，实测误差几乎相同） |
+
+默认方案下树模型的输入约 211 列：游戏年龄 1 列、标签约 192 列、评测数、好评率、Steam 内购买占比各 1 列、语言 9 列、评测者时长中位数 1 列、价格 5 列。`p_post` 只用于校准，`sample_n` 只作记录。
 
 另设两个对照，树模型要明显优于它们才说明学到了东西：一是所有游戏用同一个倍数（训练集 $\ln k$ 的平均值）；二是线性回归，每个特征乘一个系数再相加，缺失的特征用训练集的中位数填补（只在这个对照里填）。
 
