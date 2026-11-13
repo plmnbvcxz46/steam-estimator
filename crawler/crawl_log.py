@@ -16,8 +16,14 @@ CREATE TABLE IF NOT EXISTS raw_crawl_log (
 )
 """
 
-# 已有定论的结局，重跑时跳过；其余（超时、断线、429、5xx 等）都要重试
-DONE_STATUSES = ("200", "未收录", "空结果")
+# 除了 HTTP 状态码，采集器自己会记下面三种结局。写成常量是为了防止手敲错字：
+# “未收录”错一个字就不在 DONE_STATUSES 里，会每次重跑都重新请求，而且没有任何提示。
+NOT_FOUND = "未收录"  # 接口明确说没有这款游戏（如已下架）
+EMPTY = "空结果"  # 请求成功，但一条数据都没有
+PARSE_ERROR = "parse_error"  # 返回的内容和预期对不上，下次重试
+
+# 已有定论的结局，重跑时跳过；其余（超时、断线、429、5xx、parse_error 等）都要重试
+DONE_STATUSES = ("200", NOT_FOUND, EMPTY)
 
 
 def ensure_table(conn):

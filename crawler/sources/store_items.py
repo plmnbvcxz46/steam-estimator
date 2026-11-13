@@ -151,7 +151,7 @@ def save_batch(conn, appids, items):
         for appid, item in zip(appids, items):
             result = item["success"]
             if result == RESULT_NOT_FOUND:
-                crawl_log.record(conn, SOURCE, appid, "未收录")
+                crawl_log.record(conn, SOURCE, appid, crawl_log.NOT_FOUND)
                 not_found_count += 1
                 continue
             if result != RESULT_OK:
@@ -207,7 +207,7 @@ def crawl_store_items(conn, appids):
             logger.warning("第 %d 到 %d 个解析失败: %r", start + 1, start + len(batch), err)
             with conn:
                 for appid in batch:
-                    crawl_log.record(conn, SOURCE, appid, "parse_error")
+                    crawl_log.record(conn, SOURCE, appid, crawl_log.PARSE_ERROR)
             continue
 
         logger.info(

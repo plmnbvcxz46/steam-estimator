@@ -42,6 +42,12 @@ def test_expected_queries_are_fifteen():
     assert len(EXPECTED_QUERIES) == 15
 
 
+def test_expected_queries_match_crawler():
+    # 口径清单在采集和清洗两边各写了一份（清洗不依赖采集），这里保证两份没有走样
+    crawled = {request["query"] for request in raw_review_counts.REQUESTS}
+    assert crawled == EXPECTED_QUERIES
+
+
 def test_merges_fifteen_rows_into_one():
     conn = make_conn()
     insert_game(conn, 10, total=20)

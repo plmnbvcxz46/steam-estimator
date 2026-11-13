@@ -115,7 +115,7 @@ def save_ids(conn, appids, response):
                 (appid, itad_id, fetched_at),
             )
             if itad_id is None:
-                crawl_log.record(conn, SOURCE_IDS, appid, "未收录")
+                crawl_log.record(conn, SOURCE_IDS, appid, crawl_log.NOT_FOUND)
                 not_found_count += 1
             else:
                 crawl_log.record(conn, SOURCE_IDS, appid, 200)
@@ -152,7 +152,7 @@ def crawl_itad_ids(conn, appids, api_key):
             logger.warning("换编号第 %d 到 %d 个解析失败: %r", start + 1, start + len(batch), err)
             with conn:
                 for appid in batch:
-                    crawl_log.record(conn, SOURCE_IDS, appid, "parse_error")
+                    crawl_log.record(conn, SOURCE_IDS, appid, crawl_log.PARSE_ERROR)
             continue
 
         logger.info(
@@ -211,7 +211,7 @@ def save_history(conn, appid, rows):
         )
         conn.executemany(INSERT_HISTORY_SQL, rows)
         # ITAD 收录了这款，但 Steam 美国区一条价格记录都没有，也是一种定论
-        crawl_log.record(conn, SOURCE_HISTORY, appid, 200 if rows else "空结果")
+        crawl_log.record(conn, SOURCE_HISTORY, appid, 200 if rows else crawl_log.EMPTY)
 
 
 def load_itad_ids(conn, appids):
@@ -256,7 +256,7 @@ def crawl_price_history(conn, appids, api_key):
             # 缺字段、结构变了、两条记录完全一样：记下原因，跳过这款，不让整次采集崩掉
             logger.warning("appid=%d 解析失败: %r", appid, err)
             with conn:
-                crawl_log.record(conn, SOURCE_HISTORY, appid, "parse_error")
+                crawl_log.record(conn, SOURCE_HISTORY, appid, crawl_log.PARSE_ERROR)
             continue
 
         if index % 100 == 0 or index == len(todo):
