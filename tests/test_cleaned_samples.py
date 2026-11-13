@@ -2,7 +2,8 @@ import sqlite3
 
 from crawler.sources import ars
 from pipeline import games, review_counts
-from pipeline.samples import build_samples, review_count_features
+from pipeline.samples.build import build_samples
+from pipeline.samples.review_count_features import review_count_features
 
 CUTOFF = "2018-07-01"
 

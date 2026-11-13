@@ -7,6 +7,10 @@
 
 现在只有训练集（train）的行：校准集要等真值表导入，查询要等查询入口。
 
+这个文件只管汇总：建表、选出哪些游戏、调各类特征的模块、写入。
+每类特征怎么算放在各自的模块里（如 review_count_features.py），
+训练、校准、查询三组样本调的是同一个函数，算法不会两样。
+
 不在这里设评测数门槛（如至少 10 条）：门槛要用交叉验证比较几个值，
 放在训练时筛，换门槛不用重建表。
 
@@ -19,6 +23,7 @@ import sqlite3
 from common.log import setup_logging
 from common.paths import DB_PATH
 from pipeline.review_counts import LANGUAGES
+from pipeline.samples.review_count_features import review_count_features
 
 logger = logging.getLogger(__name__)
 
@@ -84,31 +89,6 @@ def make_sample_id(split, appid, cutoff_date):
     同一款游戏同一天既在校准集又被查询时也不会撞。
     """
     return f"{split}:{appid}:{cutoff_date}"
-
-
-def review_count_features(total_reviews, positive_reviews, steam_purchase_reviews, language_reviews):
-    """评测计数这一类特征：都是“某类评测数 ÷ 评测总数”。
-
-    language_reviews 是 {语言代码: 该语言评测数}，13 种语言。
-    返回一个 dict：好评率、Steam 内购买占比、13 种语言的占比和 13 种之外的占比，共 16 项。
-
-    存占比不存条数：条数 = 评测数 × 占比，两者重复；
-    占比在评测多的游戏和评测少的游戏之间才能比。
-    """
-    features = {
-        "positive_rate": positive_reviews / total_reviews,
-        "steam_purchase_ratio": steam_purchase_reviews / total_reviews,
-    }
-
-    known_language_reviews = 0
-    for language in LANGUAGES:
-        count = language_reviews[language]
-        features["share_" + language] = count / total_reviews
-        known_language_reviews += count
-
-    # 用条数相减再除，不用 1 减 13 个占比：小数相减会留下 -0.00000001 这样的尾巴
-    features["share_other"] = (total_reviews - known_language_reviews) / total_reviews
-    return features
 
 
 def load_train_rows(conn):
@@ -179,7 +159,7 @@ def build_samples(conn):
 
 
 def main():
-    """命令行入口：python -m pipeline.samples"""
+    """命令行入口：python -m pipeline.samples（经由 __main__.py）"""
     setup_logging("cleaned_samples.log")
 
     conn = sqlite3.connect(DB_PATH)
