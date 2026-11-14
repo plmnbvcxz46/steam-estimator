@@ -18,8 +18,9 @@ python -m crawler.sources.<源>          # 采集到 steam.db 的 raw_* 表；�
 python -m pipeline.games                # 清洗，写 cleaned_* 表；另有 pipeline.prices、pipeline.review_counts
 python -m pipeline.samples              # 样本表 cleaned_samples（要先跑完上面三个清洗）
 python -m analysis.baselines            # 两个对照（固定倍数、线性回归）的五折交叉验证成绩
-python -m analysis.signal_a             # 树模型的五折交叉验证成绩
+python -m analysis.signal_a             # 三种方法的五折交叉验证，写 result_cv_* 表
 python -m viz.k_by_reviews              # 图表到 figures/；另有 viz.reviews_vs_players
+python -m viz.method_comparison         # 三种方法的对比图（要先跑 analysis.signal_a）
 pytest                                  # 测试
 ```
 

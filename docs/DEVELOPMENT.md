@@ -79,7 +79,7 @@ $$
 crawler/   pipeline/   analysis/   viz/   # 四个模块；各脚本入口为 python -m 模块.脚本，模块本身没有入口
   crawler/sources/                       # 一个数据源一个文件，入口为 python -m crawler.sources.<数据源>：ars、itad、review_counts、reviews、store_items
   pipeline/ 现有脚本                      # games、prices、review_counts；样本表是一个包 pipeline/samples/，入口为 python -m pipeline.samples
-  viz/ 现有脚本                           # k_by_reviews、reviews_vs_players
+  viz/ 现有脚本                           # k_by_reviews、reviews_vs_players、method_comparison
   analysis/                              # evaluation（读训练样本、分折、算误差）、model_inputs（样本表转模型输入）、baselines（固定倍数、线性回归两个对照）
   crawler/ 其余文件                       # 各数据源共用的采集基础设施：请求、采集日志
 common/                                  # 各模块共用的小工具：路径、日志、时间；不含业务逻辑
@@ -132,8 +132,8 @@ docs/                                    # 设计、推导、devlog
 | `result_estimates`（未实现） | `sample_id` | `ln_a`、`ln_b`、`b_unavailable_reason`、`ln_fused`、`sigma`、`lower`、`upper`、`divergence`、`label`（高 / 中 / 低）；`calib` 样本存留一法预测，不存全量拟合后的预测；`train` 样本不写入 |
 | `result_params`（未实现） | `name` | `value`；`name` 取 `a`、`b`、`beta`、`gamma0`、`delta`、`eta`、`sigma_a`、`sigma_b`、`mu_b`、`sigma_fused`，含义见“最终模型”一节 |
 | `result_feature_importance`（未实现） | `feature` | `importance`；树模型的特征重要性，供 `viz` 画图 |
-| `result_cv_scores`（未实现） | `(experiment, variant)` | 五折交叉验证的成绩，一种做法一行：`n_samples`（参加五折的游戏款数）、`rmse`（$\ln k$ 的均方根误差）、`hit_rate`（$\pm 30\%$ 命中率，存小数） |
-| `result_cv_predictions`（未实现） | `(experiment, variant, sample_id)` | 五折交叉验证里每款游戏的预测：`true_ln_k`（真值）、`predicted_ln_k`（预测值）；只有要画误差分布的比较才写，其余比较只写成绩 |
+| `result_cv_scores` | `(experiment, variant)` | 五折交叉验证的成绩，一种做法一行：`n_samples`（参加五折的游戏款数）、`rmse`（$\ln k$ 的均方根误差）、`hit_rate`（$\pm 30\%$ 命中率，存小数） |
+| `result_cv_predictions` | `(experiment, variant, sample_id)` | 五折交叉验证里每款游戏的预测：`true_ln_k`（真值）、`predicted_ln_k`（预测值）；只有要画误差分布的比较才写，其余比较只写成绩 |
 
 两张 `result_cv_*` 表记录训练阶段的比较，`result_estimates` 不存 `train` 样本，所以另建。`experiment` 是哪一次比较（回答一个问题），`variant` 是这次比较里的哪一种做法，都用英文代号，画图时由 `viz` 换成中文。同一个 `experiment` 的几行只在要比的那一处不同，其余条件相同；不同 `experiment` 之间不直接比。重跑一个 `experiment` 时，在一个事务里删掉它的旧行再写新行，其他 `experiment` 不动；比较的过程和理由记在 devlog。`true_ln_k` 和样本表重复，仍然存下：`viz` 只读 result 表，不再自己算 $\ln k$。
 

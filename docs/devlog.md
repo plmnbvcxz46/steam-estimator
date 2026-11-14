@@ -251,3 +251,4 @@
 - 五折结果（9623 款，211 列）：0.703 / 45.3%，明显好过线性回归的 0.824 / 36.3%。DEVELOPMENT 4.1 节把三种方法的成绩改成表格。
 - 下一步比较参数：先看树的棵数和五折误差的关系，再比较树的大小。
 - 三种方法的对比要画成图，不在命令行打表。按“viz 只读 result 表”，新增 `result_cv_scores`（成绩，一种做法一行）和 `result_cv_predictions`（每款预测，只有画误差分布的比较才写），先写进 DEVELOPMENT 2.2。字段按“现在有谁读”筛：参数 JSON、门槛、跑的时刻、折号都先不存，用到再加。
+- 两张表已实现：建表和 `save_experiment` 放在 `analysis/evaluation.py`（评估这条线读样本、分折、打分、存成绩都在一个文件）。`python -m analysis.signal_a` 跑三种方法写入 `methods`，`python -m viz.method_comparison` 只读表画 `figures/method_comparison.png`：上半张是估计 ÷ 真值的分布，下半张是命中率和均方根误差。
