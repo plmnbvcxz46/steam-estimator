@@ -1,7 +1,7 @@
 import sqlite3
 
 from crawler.sources import ars, reviews
-from pipeline import games, review_counts
+from pipeline import games, prices, review_counts
 from pipeline.samples.build import build_samples
 from pipeline.samples.review_count_features import review_count_features
 
@@ -17,6 +17,8 @@ def make_conn():
     # 评测抽样的两张表：这里的游戏都没抽到评测，时长为空
     conn.execute(reviews.CREATE_WINDOWS_SQL)
     conn.execute(reviews.CREATE_SAMPLE_SQL)
+    # 价格段表：这里的游戏都没有价格历史，价格五列为空
+    conn.execute(prices.CREATE_TABLE_SQL)
     return conn
 
 

@@ -23,6 +23,7 @@ import sqlite3
 from common.log import setup_logging
 from common.paths import DB_PATH
 from pipeline.review_counts import LANGUAGES
+from pipeline.samples.price_features import CUT_LEVELS, load_price_segments, price_features
 from pipeline.samples.playtime_features import load_playtime_inputs, playtime_features
 from pipeline.samples.review_count_features import review_count_features
 from pipeline.samples.store_features import store_features
@@ -61,7 +62,12 @@ CREATE TABLE cleaned_samples (
     playtime_median_hrs  REAL,
     sample_n             INTEGER NOT NULL,
     game_age_years       REAL NOT NULL,
-    tags                 TEXT NOT NULL
+    tags                 TEXT NOT NULL,
+    price_at_cutoff_usd  REAL,
+    avg_price_usd        REAL,
+    frac_time_cut25      REAL,
+    frac_time_cut50      REAL,
+    frac_time_cut75      REAL
 )
 """
 
@@ -84,6 +90,10 @@ SAMPLE_COLUMNS.append("playtime_median_hrs")
 SAMPLE_COLUMNS.append("sample_n")
 SAMPLE_COLUMNS.append("game_age_years")
 SAMPLE_COLUMNS.append("tags")
+SAMPLE_COLUMNS.append("price_at_cutoff_usd")
+SAMPLE_COLUMNS.append("avg_price_usd")
+for level in CUT_LEVELS:
+    SAMPLE_COLUMNS.append(f"frac_time_cut{level}")
 
 INSERT_SQL = (
     "INSERT INTO cleaned_samples (" + ", ".join(SAMPLE_COLUMNS) + ")"
@@ -132,6 +142,8 @@ def load_train_rows(conn):
 
     # 算时长要用的抽样数据，一次读完
     window_totals, playtimes = load_playtime_inputs(conn, TRAIN_CUTOFF)
+    # 价格段也一次读完
+    price_segments = load_price_segments(conn)
 
     rows = []
     for raw_row in raw_rows:
@@ -156,6 +168,8 @@ def load_train_rows(conn):
         # 一条有时长的评测都没抽到的游戏，两个字典里都没有它，给空的
         row.update(playtime_features(window_totals.get(appid, {}), playtimes.get(appid, [])))
         row.update(store_features(TRAIN_CUTOFF, release_date, tags))
+        # 没有价格历史的游戏给空列表，五列都会是空
+        row.update(price_features(price_segments.get(appid, []), TRAIN_CUTOFF))
         rows.append(row)
     return rows
 
