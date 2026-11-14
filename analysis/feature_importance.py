@@ -38,7 +38,15 @@ FIXED_GROUPS = {
 
 def feature_groups(inputs):
     """返回 {组名: 列名列表}：固定的 7 组，再加上所有标签列组成的 tags 组。"""
-    # TODO 下一步填
+    # dict(...) 复制一份，往里加 tags 时不改动 FIXED_GROUPS 本身
+    groups = dict(FIXED_GROUPS)
+    groups["tags"] = [column for column in inputs.columns if column.startswith("tag_")]
+
+    # 每一列都要恰好属于一组：漏了的列不会被打乱，重要性就少算了
+    grouped = [column for columns in groups.values() for column in columns]
+    if sorted(grouped) != sorted(inputs.columns):
+        raise ValueError("特征分组和模型输入的列对不上")
+    return groups
 
 
 def shuffle_group(test_inputs, columns, rng):
@@ -46,7 +54,12 @@ def shuffle_group(test_inputs, columns, rng):
 
     一组里的几列用同一种打乱顺序：组内几列之间的搭配保留，只切断它们和这款游戏的对应。
     """
-    # TODO 下一步填
+    shuffled = test_inputs.copy()
+    # 一个打乱后的行号顺序，这组所有列共用
+    order = rng.permutation(len(test_inputs))
+    # .to_numpy() 去掉原来的行标签再放回去，否则 pandas 会按行标签对齐，等于没打乱
+    shuffled[columns] = test_inputs[columns].to_numpy()[order]
+    return shuffled
 
 
 def importance_cv(inputs, ln_k, folds, groups, rng):
