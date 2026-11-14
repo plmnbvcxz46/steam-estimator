@@ -78,9 +78,9 @@ $$
 ```
 crawler/   pipeline/   analysis/   viz/   # 四个模块；各脚本入口为 python -m 模块.脚本，模块本身没有入口
   crawler/sources/                       # 一个数据源一个文件，入口为 python -m crawler.sources.<数据源>：ars、itad、review_counts、reviews、store_items
-  pipeline/ 现有脚本                      # games、prices、review_counts
+  pipeline/ 现有脚本                      # games、prices、review_counts；样本表是一个包 pipeline/samples/，入口为 python -m pipeline.samples
   viz/ 现有脚本                           # k_by_reviews、reviews_vs_players
-  analysis/                              # （目前是空壳，只有 __init__.py）
+  analysis/                              # evaluation（读训练样本、分折、算误差）、baselines（固定倍数基线）
   crawler/ 其余文件                       # 各数据源共用的采集基础设施：请求、采集日志
 common/                                  # 各模块共用的小工具：路径、日志、时间；不含业务逻辑
 query/                                   # 单款查询入口（未实现）
@@ -123,7 +123,7 @@ docs/                                    # 设计、推导、devlog
 | `cleaned_review_counts` | `(appid, cutoff_date)` | 把 `raw_review_counts` 里一款游戏的 15 行（15 个口径）合成一行，存条数不存占比，占比在建样本表（`cleaned_samples`，一款游戏一行、汇总特征和划分的宽表）时再算：`total_reviews`（评测数）、`positive_reviews`（其中好评数）、`steam_purchase_reviews`（Steam 内购买的评测数）、`reviews_<Steam 语言代码>`（13 种语言各一列，如 `reviews_schinese`）。评测数为 0 的不写入，按个数记日志；非游戏不在这里排除，建样本表时用 `cleaned_games` 过滤；某款的口径不足 15 个说明采集没跑完，直接报错 |
 | `cleaned_prices` | `(appid, started_at, regular, price)` | 把价格变动点变成时间段，raw 表一个变动点对应一段，行数相同：`started_at`（变动时刻）、`ended_at`（这款游戏下一个不同变动时刻；最后一段用这款的采集时刻 `fetched_at`）、`regular`（原价）、`price`（实付价）、`cut`（折扣百分比）、`days`（持续天数，可带小数）。不按截止日截取，存完整历史；同一时刻的多条记录都保留，共用同一段时间；不选线、不截断，这些取舍放在建样本表时。不按天铺开：全部游戏铺到采集日约 4900 万行 |
 | `cleaned_charts_monthly`（未实现） | `(appid, month)` | `avg_players` |
-| `cleaned_samples`（未实现） | `sample_id` | 样本：`appid`、`cutoff_date`、`split`（`train` / `calib` / `query`）、`truth_value`（`query` 为空）<br>评测：`total_reviews`、`positive_rate`（好评数 ÷ 评测数）、`steam_purchase_ratio`（Steam 内购买的评测数 ÷ 评测数）、`p_post`、语言占比 14 列：`share_english`、`share_schinese` 等 13 种语言一种一列（后缀是 Steam 语言代码，存的是占比，不是条数），加 `share_other`（13 种之外的占比）、`playtime_median_hrs`（评测者写评测时的游玩小时，按段加权的中位数）、`sample_n`（抽到且有时长的评测条数，只作记录，不进模型）<br>价格：`price_at_cutoff_usd`（截止日原价，免费为 0）、`avg_price_usd`（截止日前按天加权的实付价格）、`frac_time_cut25`、`frac_time_cut50`、`frac_time_cut75`（截止日前折扣不低于 25%、50%、75% 的时间占比）；历史价格缺失或截止日后才开始的，这五列都为空<br>其他：`game_age_years`（截止日减上架日，单位年，不取对数、不截断）、`tags`（取自 `cleaned_games.tags`，一列，按权重从高到低用 `\|` 连接，训练时再展开，见“样本表”一节）、`charts_total_hours`（$H$） |
+| `cleaned_samples` | `sample_id` | 样本：`appid`、`cutoff_date`、`split`（`train` / `calib` / `query`）、`truth_value`（`query` 为空）；目前只有 `train` 的行<br>评测：`total_reviews`、`positive_rate`（好评数 ÷ 评测数）、`steam_purchase_ratio`（Steam 内购买的评测数 ÷ 评测数）、`p_post`（未实现）、语言占比 14 列：`share_english`、`share_schinese` 等 13 种语言一种一列（后缀是 Steam 语言代码，存的是占比，不是条数），加 `share_other`（13 种之外的占比）、`playtime_median_hrs`（评测者写评测时的游玩小时，按段加权的中位数）、`sample_n`（抽到且有时长的评测条数，只作记录，不进模型）<br>价格：`price_at_cutoff_usd`（截止日原价，免费为 0）、`avg_price_usd`（截止日前按天加权的实付价格）、`frac_time_cut25`、`frac_time_cut50`、`frac_time_cut75`（截止日前折扣不低于 25%、50%、75% 的时间占比）；历史价格缺失或截止日后才开始的，这五列都为空<br>其他：`game_age_years`（截止日减上架日，单位年，不取对数、不截断）、`tags`（取自 `cleaned_games.tags`，一列，按权重从高到低用 `\|` 连接，训练时再展开，见“样本表”一节）、`charts_total_hours`（$H$，未实现） |
 
 **result：分析结果，`viz` 只读。**
 
@@ -222,7 +222,7 @@ docs/                                    # 设计、推导、devlog
 
 第一步，在训练集上用树模型学习对数倍数 $\ln k$。模型输入为全部特征：评测数、截止日原价、好评率、标签、游戏年龄、Steam 内购买占比、各语言评测占比、三档折扣时间占比、平均实付价格、评测者时长中位数等。政策后评测占比在训练集上恒为 0，不作为树模型的输入，只用于第二步校准。模型和特征只在这一步选择，用五折交叉验证。特征重要性也在这一步输出。
 
-树模型用 scikit-learn 的梯度提升回归（`HistGradientBoostingRegressor`）：一棵接一棵地种树，每棵专门修正前面那些树的误差。目标是 $\ln k$ 而不是直接学 $\ln$ 玩家数：评测数也是输入时两者的误差相同，但树模型不会外推，直接学玩家数会严重低估比训练集都大的游戏（实测见 devlog 2026-11-13）。损失取平方误差，衡量的是“差几倍”而不是“差几份”，与命中条件一致。缺失的特征在样本表里存空，不填补，由模型直接处理；评测者时长另附抽到的条数 `sample_n`，让模型自己判断中位数靠不靠谱。超参数只调少数几个（树的数量、深度、学习率），用五折交叉验证选。
+树模型用 scikit-learn 的梯度提升回归（`HistGradientBoostingRegressor`）：一棵接一棵地种树，每棵专门修正前面那些树的误差。目标是 $\ln k$ 而不是直接学 $\ln$ 玩家数：评测数也是输入时两者的误差相同，但树模型不会外推，直接学玩家数会严重低估比训练集都大的游戏（实测见 devlog 2026-11-13）。损失取平方误差，衡量的是“差几倍”而不是“差几份”，与命中条件一致。缺失的特征在样本表里存空，不填补，由模型直接处理。超参数只调少数几个（树的数量、深度、学习率），用五折交叉验证选。
 
 样本表的列怎么变成模型输入，在代码里留成参数。先跑默认方案得到基线，之后每次只改一项，用五折交叉验证和基线比：
 
@@ -337,6 +337,7 @@ $$
 
 - 主指标：$\pm 30\%$ 命中率，按信号 A、信号 B、融合分别报告，并按销量档和置信标签分组报告。
 - 辅助指标：95% 区间的实际覆盖率。
+- 选模型指标：$\ln k$ 的均方根误差 $\sqrt{\frac{1}{n}\sum_i (\widehat{\ln k_i} - \ln k_i)^2}$。五折交叉验证选模型、选参数时用它，因为它对每一点改进都敏感；命中率只看是否落在 $\pm 30\%$ 以内，差 1.5 倍和差 10 倍算一样，用来报告成绩，不用来选。
 - 命中率和覆盖率都是比例，95% 置信区间用 Wilson 区间公式直接计算，推导见 [DERIVATIONS.md](DERIVATIONS.md)“比例的置信区间”一节。
 
 ### 5.4 测试
@@ -371,8 +372,8 @@ $$
 | --- | --- | --- | --- |
 | 一 | 原型 | 从 2018 年 Ars 玩家数表中取约 200 款，采集商店信息和截至 2018-07-01 的评测计数，计算 $k$ 的分布（原型阶段的筛选做法见 devlog.md，现行规则见“清洗与训练集门槛”） | 已完成 |
 | 二 | 采集与导入 | 评测计数与抽样、商店信息、在线人数、历史价格的采集；近年真值表的导入。商店信息、评测计数、评测抽样、价格历史已完成；在线人数、近年真值表未开始 | 进行中 |
-| 三 | 管道 | 清洗、对齐、特征、样本划分。`cleaned_games`、`cleaned_review_counts`、`cleaned_prices` 已完成；样本表未开始 | 进行中 |
-| 四 | 信号 A | 树模型、校准、评估框架、留一法评估 | 未开始 |
+| 三 | 管道 | 清洗、对齐、特征、样本划分。`cleaned_games`、`cleaned_review_counts`、`cleaned_prices` 已完成；样本表的训练集已完成，校准集和查询样本未开始 | 进行中 |
+| 四 | 信号 A | 树模型、校准、评估框架、留一法评估 | 进行中：评估框架和固定倍数基线已完成 |
 | 五 | 信号 B 与融合 | 信号 B、融合、置信标签 | 未开始 |
 | 六 | 全量拟合 | 用全部数据拟合最终模型与参数，保存后冻结 | 未开始 |
 | 七 | 可视化与查询 | 生成全部图表；单款查询入口。已有两张探查图，其余未开始 | 进行中 |
