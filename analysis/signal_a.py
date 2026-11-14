@@ -13,7 +13,8 @@ import sqlite3
 import numpy as np
 from sklearn.ensemble import HistGradientBoostingRegressor
 
-from analysis.evaluation import N_FOLDS, load_train_samples, make_folds, score
+from analysis.baselines import fixed_multiplier_cv, linear_inputs, linear_regression_cv
+from analysis.evaluation import N_FOLDS, load_train_samples, make_folds, save_experiment, score
 from analysis.model_inputs import build_inputs, choose_tags
 from common.paths import DB_PATH
 
@@ -38,21 +39,30 @@ def tree_cv(inputs, ln_k, folds):
 
 
 def main():
-    """读训练样本，跑树模型的五折交叉验证，打印成绩。"""
+    """读训练样本，跑三种方法的五折交叉验证，结果写进五折成绩表（experiment = methods）。"""
     conn = sqlite3.connect(DB_PATH)
     try:
         samples = load_train_samples(conn)
+        folds = make_folds(len(samples))
+        ln_k = samples["ln_k"]
+        tag_list = choose_tags(samples["tags"])
+        inputs = build_inputs(samples, tag_list)
+
+        # 三种方法用同一批游戏、同一套折；线性回归要先取对数、去英语，另两种不用
+        predictions = {
+            "fixed": fixed_multiplier_cv(ln_k, folds),
+            "linear": linear_regression_cv(linear_inputs(inputs), ln_k, folds),
+            "tree": tree_cv(inputs, ln_k, folds),
+        }
+        # 对比图要画每款的误差分布，所以连预测一起存
+        save_experiment(conn, "methods", samples["sample_id"], ln_k, predictions, save_predictions=True)
     finally:
         conn.close()
 
-    folds = make_folds(len(samples))
+    result = score(ln_k, predictions["tree"])
     print(f"训练样本 {len(samples)} 款")
-
-    tag_list = choose_tags(samples["tags"])
-    inputs = build_inputs(samples, tag_list)
-    predicted = tree_cv(inputs, samples["ln_k"], folds)
-    result = score(samples["ln_k"], predicted)
     print(f"树模型（{inputs.shape[1]} 列）：均方根误差 {result['rmse']:.3f}，±30% 命中率 {result['hit_rate']:.1%}")
+    print("三种方法的成绩已写入 result_cv_scores、result_cv_predictions（experiment = methods）")
 
 
 if __name__ == "__main__":
