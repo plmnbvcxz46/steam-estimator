@@ -43,18 +43,18 @@ CHOSEN_ITERATIONS = 400
 
 # 分折种子检验的两组候选：名字、图例、颜色（和上排对应的线同色）
 SEED_CANDIDATES = [
-    ("lr_0.05", "学习率 0.05、400 棵（选定）", "#eb6834"),
-    ("min_100", "每片至少 100 款、200 棵", "#1baf7a"),
+    ("lr_0.05", "选定参数：学习率 0.05，树的数量 400", "#eb6834"),
+    ("min_100", "候选参数：叶子最小样本数 100，树的数量 200", "#1baf7a"),
 ]
 
 # 每张小图：experiment、标题、默认那条线的名字、{线的名字: 图例}
 PANELS = [
-    ("tree_size", "每棵树最多几片叶子", "leaves_31",
-     {"leaves_15": "15 片", "leaves_31": "31 片（默认）", "leaves_63": "63 片"}),
+    ("tree_size", "最大叶子数", "leaves_31",
+     {"leaves_15": "15", "leaves_31": "31 默认值", "leaves_63": "63"}),
     ("learning_rate", "学习率", "lr_0.1",
-     {"lr_0.1": "0.1（默认）", "lr_0.05": "0.05"}),
-    ("min_leaf", "每片叶子至少多少款", "min_20",
-     {"min_20": "20 款（默认）", "min_50": "50 款", "min_100": "100 款"}),
+     {"lr_0.1": "0.1 默认值", "lr_0.05": "0.05"}),
+    ("min_leaf", "叶子最小样本数", "min_20",
+     {"min_20": "20 默认值", "min_50": "50", "min_100": "100"}),
 ]
 
 
@@ -103,7 +103,7 @@ def draw_panel(ax, curves, title, default_name, labels):
     """一张小图：每种设置一条线，标出默认参数那个点和它上下 0.005 的灰带。"""
     default_rmse = dict(curves[default_name])[DEFAULT_ITERATIONS]
     ax.axhspan(default_rmse - BAND_WIDTH, default_rmse + BAND_WIDTH,
-               color=BAND, alpha=0.6, linewidth=0, label=f"默认 ±{BAND_WIDTH}")
+               color=BAND, alpha=0.6, linewidth=0, label=f"默认值 ±{BAND_WIDTH}")
 
     other_colors = iter(OTHER_COLORS)
     for name, label in labels.items():
@@ -114,14 +114,14 @@ def draw_panel(ax, curves, title, default_name, labels):
             markerfacecolor="none", markeredgewidth=2)
     if CHOSEN_LINE in curves:
         chosen_rmse = dict(curves[CHOSEN_LINE])[CHOSEN_ITERATIONS]
-        ax.plot(CHOSEN_ITERATIONS, chosen_rmse, "*", color=INK, markersize=14, label="选定")
+        ax.plot(CHOSEN_ITERATIONS, chosen_rmse, "*", color=INK, markersize=14, label="选定参数")
 
     ticks = [50, 100, 200, 500, 1000, 2000]
     ax.set_xscale("log")
     ax.set_xticks(ticks, [str(t) for t in ticks])
     ax.minorticks_off()
     ax.set_title(title, color=INK, fontsize=11)
-    ax.set_xlabel("树的棵数（对数坐标）", color=MUTED)
+    ax.set_xlabel("树的数量", color=MUTED)
     for side in ["top", "right"]:
         ax.spines[side].set_visible(False)
     ax.tick_params(colors=MUTED)
@@ -137,8 +137,8 @@ def draw_seed_panel(ax, gains, index, title, ylabel, scale):
         seeds = [point[0] for point in gains[name]]
         values = [point[index] * scale for point in gains[name]]
         ax.plot(seeds, values, "-o", color=color, linewidth=2, markersize=6, label=label)
-    ax.set_xticks(seeds, [f"种子 {seed}" for seed in seeds])
-    ax.set_xlabel("随机分折的种子（0 是平时用的那套）", color=MUTED)
+    ax.set_xticks(seeds, [str(seed) for seed in seeds])
+    ax.set_xlabel("分折随机种子", color=MUTED)
     ax.set_ylabel(ylabel, color=MUTED)
     ax.set_title(title, color=INK, fontsize=11)
     for side in ["top", "right"]:
@@ -146,7 +146,6 @@ def draw_seed_panel(ax, gains, index, title, ylabel, scale):
     ax.tick_params(colors=MUTED)
     ax.grid(True, axis="y", color=GRID, linewidth=0.6)
     ax.set_axisbelow(True)
-    ax.legend(frameon=False, fontsize=9)
 
 
 def draw(curves_by_experiment, seed_gains, output_path):
@@ -162,14 +161,17 @@ def draw(curves_by_experiment, seed_gains, output_path):
         ax = fig.add_subplot(grid[0, column * 2:column * 2 + 2], sharey=share)
         draw_panel(ax, curves_by_experiment[experiment], title, default_name, labels)
         top_axes.append(ax)
-    top_axes[0].set_ylabel("五折均方根误差", color=MUTED)
+    top_axes[0].set_ylabel("均方根误差", color=MUTED)
 
-    draw_seed_panel(fig.add_subplot(grid[1, 0:3]), seed_gains, 1,
-                    "换分折种子：均方根误差比默认低多少", "误差降低", 1)
+    ax_rmse = fig.add_subplot(grid[1, 0:3])
+    draw_seed_panel(ax_rmse, seed_gains, 1, "不同分折下均方根误差的降低量", "降低量", 1)
     draw_seed_panel(fig.add_subplot(grid[1, 3:6]), seed_gains, 2,
-                    "换分折种子：±30% 命中率比默认高多少", "命中率提高（百分点）", 100)
-    fig.suptitle("树模型参数比较", color=INK, fontsize=13)
-    fig.tight_layout()
+                    "不同分折下 ±30% 命中率的提升", "提升百分点", 100)
+    # 下排两张的线相同，图例只放一份，摆在图的最下方，不压住数据
+    handles, labels = ax_rmse.get_legend_handles_labels()
+    fig.legend(handles, labels, loc="lower center", ncol=len(labels), frameon=False, fontsize=9)
+    fig.suptitle("树模型超参数比较", color=INK, fontsize=13)
+    fig.tight_layout(rect=(0, 0.04, 1, 1))
     output_path.parent.mkdir(exist_ok=True)
     fig.savefig(output_path, dpi=150)
     plt.close(fig)

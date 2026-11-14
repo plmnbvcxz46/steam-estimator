@@ -85,7 +85,7 @@ def draw_distribution(ax, ratios):
     edges = np.geomspace(RATIO_MIN, RATIO_MAX, N_BINS + 1)
     centers = np.sqrt(edges[:-1] * edges[1:])
 
-    ax.axvspan(HIT_LOW, HIT_HIGH, color=BAND, alpha=0.6, linewidth=0, label="±30% 命中范围")
+    ax.axvspan(HIT_LOW, HIT_HIGH, color=BAND, alpha=0.6, linewidth=0, label="±30% 命中区间")
     for variant, (name, color) in VARIANTS.items():
         counts, _ = np.histogram(ratios[variant], bins=edges)
         ax.plot(centers, counts / len(ratios[variant]), color=color, linewidth=2, label=name)
@@ -94,10 +94,10 @@ def draw_distribution(ax, ratios):
     ticks = [0.1, 0.3, HIT_LOW, 1, HIT_HIGH, 3, 10]
     ax.set_xticks(ticks, [f"{t:g}" for t in ticks])
     ax.minorticks_off()
-    ax.set_xlabel("估计 ÷ 真值（对数坐标）", color=MUTED)
+    ax.set_xlabel("估计值与真值之比", color=MUTED)
     ax.set_ylabel("游戏占比", color=MUTED)
     ax.yaxis.set_major_formatter(matplotlib.ticker.PercentFormatter(1.0, decimals=0))
-    ax.set_title("估计 ÷ 真值的分布", color=INK, fontsize=11)
+    ax.set_title("估计值与真值之比的分布", color=INK, fontsize=11)
     ax.legend(frameon=False)
     style_axes(ax)
 
