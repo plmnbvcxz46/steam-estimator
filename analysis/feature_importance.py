@@ -68,12 +68,45 @@ def importance_cv(inputs, ln_k, folds, groups, rng):
     返回 {"baseline": 每款预测, 组名: 每款预测, ...}，顺序和输入相同。
     打乱只换考题、不重新训练，所以只比原来多几次预测，不多训练。
     """
-    # TODO 下一步填
+    ln_k = np.asarray(ln_k)
+    names = ["baseline"] + list(groups)
+    predictions = {name: np.empty(len(ln_k)) for name in names}
+
+    for fold in range(N_FOLDS):
+        is_test = folds == fold
+        # 和 signal_a.tree_cv 同样的参数、同样的训练
+        model = HistGradientBoostingRegressor(**TREE_PARAMS)
+        model.fit(inputs[~is_test], ln_k[~is_test])
+
+        test_inputs = inputs[is_test]
+        predictions["baseline"][is_test] = model.predict(test_inputs)
+        for name, columns in groups.items():
+            shuffled = shuffle_group(test_inputs, columns, rng)
+            predictions[name][is_test] = model.predict(shuffled)
+    return predictions
 
 
 def main():
     """读训练样本，5 种分折方式各跑一遍，写进 experiment = feature_importance。"""
-    # TODO 下一步填
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        samples = load_train_samples(conn)
+        ln_k = samples["ln_k"]
+        inputs = build_inputs(samples, choose_tags(samples["tags"]))
+        groups = feature_groups(inputs)
+
+        predictions = {}
+        for seed in FOLD_SEEDS:
+            folds = make_folds(len(ln_k), seed)
+            # 打乱用的随机数也跟着种子固定，每次跑结果一样
+            rng = np.random.default_rng(seed)
+            for name, predicted in importance_cv(inputs, ln_k, folds, groups, rng).items():
+                predictions[f"seed_{seed}_{name}"] = predicted
+        save_experiment(conn, "feature_importance", samples["sample_id"], ln_k, predictions,
+                        save_predictions=False)
+    finally:
+        conn.close()
+    print("特征重要性已写入 result_cv_scores（experiment = feature_importance）")
 
 
 if __name__ == "__main__":
