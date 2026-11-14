@@ -16,6 +16,8 @@ pip install -r requirements.txt
 ```bash
 python -m crawler.sources.<源>          # 采集到 steam.db 的 raw_* 表；源：store_items、review_counts、reviews、itad、ars
 python -m pipeline.games                # 清洗，写 cleaned_* 表；另有 pipeline.prices、pipeline.review_counts
+python -m pipeline.samples              # 样本表 cleaned_samples（要先跑完上面三个清洗）
+python -m analysis.baselines            # 固定倍数基线的五折交叉验证成绩
 python -m viz.k_by_reviews              # 图表到 figures/；另有 viz.reviews_vs_players
 pytest                                  # 测试
 ```
@@ -29,4 +31,4 @@ python -m query <appid> [--cutoff 日期]  # 单款查询（规划中）
 
 ## 当前进度
 
-已完成采集和清洗的数据：商店信息、评测计数、评测抽样、价格历史。还没有估算结果。
+已完成采集和清洗的数据：商店信息、评测计数、评测抽样、价格历史。样本表已有训练集（2018 年 11716 款），信号 A 的四类特征都已算好；固定倍数基线的成绩是均方根误差 1.018、±30% 命中率 26.1%。还没有模型的估算结果。
