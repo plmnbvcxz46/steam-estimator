@@ -25,6 +25,7 @@ from common.paths import DB_PATH
 from pipeline.review_counts import LANGUAGES
 from pipeline.samples.playtime_features import load_playtime_inputs, playtime_features
 from pipeline.samples.review_count_features import review_count_features
+from pipeline.samples.store_features import store_features
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +59,9 @@ CREATE TABLE cleaned_samples (
     share_turkish        REAL NOT NULL,
     share_other          REAL NOT NULL,
     playtime_median_hrs  REAL,
-    sample_n             INTEGER NOT NULL
+    sample_n             INTEGER NOT NULL,
+    game_age_years       REAL NOT NULL,
+    tags                 TEXT NOT NULL
 )
 """
 
@@ -79,6 +82,8 @@ for language in LANGUAGES:
 SAMPLE_COLUMNS.append("share_other")
 SAMPLE_COLUMNS.append("playtime_median_hrs")
 SAMPLE_COLUMNS.append("sample_n")
+SAMPLE_COLUMNS.append("game_age_years")
+SAMPLE_COLUMNS.append("tags")
 
 INSERT_SQL = (
     "INSERT INTO cleaned_samples (" + ", ".join(SAMPLE_COLUMNS) + ")"
@@ -110,12 +115,12 @@ def load_train_rows(conn):
     # JOIN 要求三张表里都找得到这款游戏，条件 1、2、4 就靠它完成；只有 3 要写 WHERE。
     # 条件 3 现在其实删不掉任何游戏：上架日含“抽到的最早评测”，有评测就一定早于截止日。
     # 留着它是保险，上架日的规则以后变了也不会放进还没开卖的游戏
-    # 13 种语言的条数列，按 LANGUAGES 的顺序排在最后
+    # 上架日和标签排在第 6、7 列，13 种语言的条数列按 LANGUAGES 的顺序排在最后
     language_columns = ", ".join("r.reviews_" + language for language in LANGUAGES)
     raw_rows = conn.execute(
         f"""
         SELECT a.appid, a.players, r.total_reviews, r.positive_reviews,
-               r.steam_purchase_reviews, {language_columns}
+               r.steam_purchase_reviews, g.release_date, g.tags, {language_columns}
         FROM raw_ars_players_2018 a
         JOIN cleaned_games g ON g.appid = a.appid
         JOIN cleaned_review_counts r ON r.appid = a.appid AND r.cutoff_date = ?
@@ -131,8 +136,9 @@ def load_train_rows(conn):
     rows = []
     for raw_row in raw_rows:
         appid, players, total_reviews, positive_reviews, steam_purchase_reviews = raw_row[:5]
-        # 前 5 个之后就是 13 种语言的条数，和 LANGUAGES 一一配对
-        language_reviews = dict(zip(LANGUAGES, raw_row[5:]))
+        release_date, tags = raw_row[5:7]
+        # 前 7 个之后就是 13 种语言的条数，和 LANGUAGES 一一配对
+        language_reviews = dict(zip(LANGUAGES, raw_row[7:]))
 
         row = {
             "sample_id": make_sample_id(SPLIT_TRAIN, appid, TRAIN_CUTOFF),
@@ -149,6 +155,7 @@ def load_train_rows(conn):
         )
         # 一条有时长的评测都没抽到的游戏，两个字典里都没有它，给空的
         row.update(playtime_features(window_totals.get(appid, {}), playtimes.get(appid, [])))
+        row.update(store_features(TRAIN_CUTOFF, release_date, tags))
         rows.append(row)
     return rows
 
