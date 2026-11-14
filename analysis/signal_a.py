@@ -32,8 +32,10 @@ TREE_PARAMS = {
 }
 
 
-def tree_cv(inputs, ln_k, folds):
+def tree_cv(inputs, ln_k, folds, params=TREE_PARAMS):
     """树模型的五折交叉验证，返回每款游戏的预测 ln k，顺序和输入相同。
+
+    params 默认用选定的参数；参数比较时可以换别的。
 
     inputs 直接用 build_inputs 的输出：不取对数、不填缺失、不去英语，
     这三件事只有线性回归需要。
@@ -42,8 +44,8 @@ def tree_cv(inputs, ln_k, folds):
     predicted = np.empty(len(ln_k))
     for fold in range(N_FOLDS):
         is_test = folds == fold
-        # ** 把字典拆开，当成 learning_rate=0.05, max_iter=400, ... 传进去
-        model = HistGradientBoostingRegressor(**TREE_PARAMS)
+        # ** 把字典拆开，当成 learning_rate=0.05, max_iter=400, ... 这样的参数传进去
+        model = HistGradientBoostingRegressor(**params)
         # 空值原样交给模型，它自己决定空值走哪一边
         model.fit(inputs[~is_test], ln_k[~is_test])
         predicted[is_test] = model.predict(inputs[is_test])

@@ -1,4 +1,4 @@
-"""树模型的参数比较：叶子数、棵数、每片叶子至少多少款，另加学习率对照。
+"""树模型的参数比较：叶子数、棵数、每片叶子至少多少款，另加学习率对照和分折方式检验。
 
 比法和选择规则见 DEVELOPMENT 4.1 节。只写成绩表（result_cv_scores），不存每款预测，
 viz.tree_params 读表画“棵数 → 误差”曲线。
@@ -13,6 +13,7 @@ from sklearn.ensemble import HistGradientBoostingRegressor
 
 from analysis.evaluation import N_FOLDS, load_train_samples, make_folds, save_experiment
 from analysis.model_inputs import build_inputs, choose_tags
+from analysis.signal_a import TREE_PARAMS, tree_cv
 from common.paths import DB_PATH
 
 # 在这些棵数上打分；最后一个就是每折要种到的棵数
@@ -31,6 +32,16 @@ CHOSEN_MAX_LEAF_NODES = 31
 DEFAULT_LEARNING_RATE = 0.1
 SLOW_LEARNING_RATE = 0.05
 SLOW_CHECKPOINTS = [100, 200, 400, 600, 1000, 1400, 2000]
+
+# 分折方式检验：同一组参数只换分折的随机种子，看差距稳不稳。0 就是平时用的那套
+FOLD_SEEDS = [0, 1, 2, 3, 4]
+
+# 参加检验的三组参数：默认值、两条曲线里最低点比默认低的两组（各取它的最低点棵数）
+SEED_CHECK_PARAMS = {
+    "default": {"max_iter": 100, "early_stopping": False},
+    "lr_0.05": TREE_PARAMS,
+    "min_100": {"max_iter": 200, "min_samples_leaf": 100, "early_stopping": False},
+}
 
 
 def tree_cv_curve(inputs, ln_k, folds, max_leaf_nodes, min_samples_leaf,
@@ -97,8 +108,21 @@ def compare_min_leaf(conn, inputs, ln_k, sample_ids, folds, max_leaf_nodes):
     save_experiment(conn, "min_leaf", sample_ids, ln_k, predictions, save_predictions=False)
 
 
+def compare_fold_seeds(conn, inputs, ln_k, sample_ids):
+    """每组参数在 5 种分折方式下各跑一遍五折，写进 experiment = fold_seeds。
+
+    一组参数要在每种分折下都比默认好才算真的更好：只换分折，默认参数的误差自己就会浮动。
+    """
+    predictions = {}
+    for seed in FOLD_SEEDS:
+        folds = make_folds(len(ln_k), seed)
+        for name, params in SEED_CHECK_PARAMS.items():
+            predictions[f"seed_{seed}_{name}"] = tree_cv(inputs, ln_k, folds, params)
+    save_experiment(conn, "fold_seeds", sample_ids, ln_k, predictions, save_predictions=False)
+
+
 def main():
-    """读训练样本，跑三组参数比较，写进成绩表。"""
+    """读训练样本，跑三组参数比较和分折方式检验，写进成绩表。"""
     conn = sqlite3.connect(DB_PATH)
     try:
         samples = load_train_samples(conn)
@@ -110,9 +134,10 @@ def main():
         compare_tree_size(conn, inputs, ln_k, sample_ids, folds)
         compare_learning_rate(conn, inputs, ln_k, sample_ids, folds)
         compare_min_leaf(conn, inputs, ln_k, sample_ids, folds, CHOSEN_MAX_LEAF_NODES)
+        compare_fold_seeds(conn, inputs, ln_k, sample_ids)
     finally:
         conn.close()
-    print("参数比较已写入 result_cv_scores（experiment = tree_size、learning_rate、min_leaf）")
+    print("参数比较已写入 result_cv_scores（experiment = tree_size、learning_rate、min_leaf、fold_seeds）")
 
 
 if __name__ == "__main__":
