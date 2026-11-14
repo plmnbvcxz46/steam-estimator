@@ -79,7 +79,7 @@ $$
 crawler/   pipeline/   analysis/   viz/   # 四个模块；各脚本入口为 python -m 模块.脚本，模块本身没有入口
   crawler/sources/                       # 一个数据源一个文件，入口为 python -m crawler.sources.<数据源>：ars、itad、review_counts、reviews、store_items
   pipeline/ 现有脚本                      # games、prices、review_counts；样本表是一个包 pipeline/samples/，入口为 python -m pipeline.samples
-  viz/ 现有脚本                           # k_by_reviews、reviews_vs_players、method_comparison
+  viz/ 现有脚本                           # k_by_reviews、reviews_vs_players、method_comparison、tree_params
   analysis/                              # evaluation（读训练样本、分折、算误差）、model_inputs（样本表转模型输入）、baselines（固定倍数、线性回归两个对照）
   crawler/ 其余文件                       # 各数据源共用的采集基础设施：请求、采集日志
 common/                                  # 各模块共用的小工具：路径、日志、时间；不含业务逻辑

@@ -21,6 +21,8 @@ python -m analysis.baselines            # 两个对照（固定倍数、线性�
 python -m analysis.signal_a             # 三种方法的五折交叉验证，写 result_cv_* 表
 python -m viz.k_by_reviews              # 图表到 figures/；另有 viz.reviews_vs_players
 python -m viz.method_comparison         # 三种方法的对比图（要先跑 analysis.signal_a）
+python -m analysis.tree_params          # 树模型参数比较，写 result_cv_scores（约 5 分钟）
+python -m viz.tree_params               # 参数比较的曲线图（要先跑 analysis.tree_params）
 pytest                                  # 测试
 ```
 
