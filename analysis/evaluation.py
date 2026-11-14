@@ -1,7 +1,10 @@
-"""三种方法共用的评估工具：读训练样本、分五折、打分。
+"""三种方法共用的评估工具：读训练样本、分五折、打分、存成绩。
 
 固定倍数、线性回归、树模型都从这里读同一批样本、用同一套分折、同一种打分，
 比出来的差别才只来自方法本身。
+
+成绩存进 result_cv_scores、result_cv_predictions 两张表，viz 只读它们画图；
+字段和取值的约定见 DEVELOPMENT 2.2 节。
 
 目标是 ln k = ln(玩家数 ÷ 评测数)，不是玩家数本身，理由见 DEVELOPMENT.md 信号 A 一节。
 """
@@ -22,6 +25,30 @@ FOLD_SEED = 0
 # 命中：估计值在真值的 ±30% 以内，即 0.7 ≤ 估计 ÷ 真值 ≤ 1.3
 HIT_LOW = 0.7
 HIT_HIGH = 1.3
+
+# 五折成绩表：一次比较（experiment）里的一种做法（variant）一行
+CREATE_SCORES_SQL = """
+CREATE TABLE IF NOT EXISTS result_cv_scores (
+    experiment  TEXT NOT NULL,
+    variant     TEXT NOT NULL,
+    n_samples   INTEGER NOT NULL,
+    rmse        REAL NOT NULL,
+    hit_rate    REAL NOT NULL,
+    PRIMARY KEY (experiment, variant)
+)
+"""
+
+# 五折预测表：每款游戏一行，只有要画误差分布的比较才写
+CREATE_PREDICTIONS_SQL = """
+CREATE TABLE IF NOT EXISTS result_cv_predictions (
+    experiment      TEXT NOT NULL,
+    variant         TEXT NOT NULL,
+    sample_id       TEXT NOT NULL,
+    true_ln_k       REAL NOT NULL,
+    predicted_ln_k  REAL NOT NULL,
+    PRIMARY KEY (experiment, variant, sample_id)
+)
+"""
 
 
 def load_train_samples(conn, min_reviews=DEFAULT_MIN_REVIEWS):
@@ -64,3 +91,31 @@ def score(true_ln_k, predicted_ln_k):
     ratio = np.exp(errors)
     hits = (ratio >= HIT_LOW) & (ratio <= HIT_HIGH)
     return {"rmse": rmse, "hit_rate": hits.mean()}
+
+
+def save_experiment(conn, experiment, sample_ids, true_ln_k, predictions, save_predictions):
+    """把一次比较的结果写进两张表，覆盖这个 experiment 原来的行。
+
+    predictions 是 {variant: 每款游戏的预测 ln k}，顺序和 sample_ids 相同。
+    save_predictions 为 False 时只写成绩：只有要画误差分布的比较才存每款预测。
+    """
+    score_rows = []
+    prediction_rows = []
+    for variant, predicted in predictions.items():
+        result = score(true_ln_k, predicted)
+        score_rows.append((experiment, variant, len(sample_ids), result["rmse"], result["hit_rate"]))
+        if save_predictions:
+            # zip 把三列按位置一一配对：第 i 款游戏的编号、真值、预测
+            for sample_id, true_value, predicted_value in zip(sample_ids, true_ln_k, predicted):
+                prediction_rows.append((experiment, variant, sample_id, true_value, predicted_value))
+
+    # 删旧、写新放在一个事务里，中途出错就整体撤销，旧结果原样还在。
+    # 两张表都删：这次不存预测时，上次留下的预测也不该再被画出来
+    with conn:
+        conn.execute("BEGIN")
+        conn.execute(CREATE_SCORES_SQL)
+        conn.execute(CREATE_PREDICTIONS_SQL)
+        conn.execute("DELETE FROM result_cv_scores WHERE experiment = ?", (experiment,))
+        conn.execute("DELETE FROM result_cv_predictions WHERE experiment = ?", (experiment,))
+        conn.executemany("INSERT INTO result_cv_scores VALUES (?, ?, ?, ?, ?)", score_rows)
+        conn.executemany("INSERT INTO result_cv_predictions VALUES (?, ?, ?, ?, ?)", prediction_rows)
