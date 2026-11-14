@@ -3,7 +3,7 @@
 和两个对照（analysis.baselines）用同一批训练样本、同一套五折、同一种打分，
 成绩才能直接比。树模型要明显好过线性回归，才说明从特征里学到了线性回归学不到的东西。
 
-这一步只做五折评估；参数比较、全量拟合和保存模型在后面几步加。
+参数由 analysis.tree_params 比较后选定（见 DEVELOPMENT 4.1 节）；全量拟合和保存模型在后面加。
 
 入口：python -m analysis.signal_a
 """
@@ -19,8 +19,23 @@ from analysis.model_inputs import build_inputs, choose_tags
 from common.paths import DB_PATH
 
 
-def tree_cv(inputs, ln_k, folds):
+# 选定的树模型参数。学习率从默认的 0.1 降到 0.05、棵数相应从 100 加到 400：
+# 换 5 种分折方式都比默认好（误差平均低约 0.004，命中率也都更高）。
+# 叶子数、每片最少款数保持默认。关掉提前停止：它会随机留一部分教材当验证，
+# 而且样本过 1 万款才自动打开，结果不好比
+TREE_PARAMS = {
+    "learning_rate": 0.05,
+    "max_iter": 400,
+    "max_leaf_nodes": 31,
+    "min_samples_leaf": 20,
+    "early_stopping": False,
+}
+
+
+def tree_cv(inputs, ln_k, folds, params=TREE_PARAMS):
     """树模型的五折交叉验证，返回每款游戏的预测 ln k，顺序和输入相同。
+
+    params 默认用选定的参数；参数比较时可以换别的。
 
     inputs 直接用 build_inputs 的输出：不取对数、不填缺失、不去英语，
     这三件事只有线性回归需要。
@@ -29,9 +44,8 @@ def tree_cv(inputs, ln_k, folds):
     predicted = np.empty(len(ln_k))
     for fold in range(N_FOLDS):
         is_test = folds == fold
-        # 参数先全用默认，只关掉提前停止：默认在样本超过 1 万款时自动打开，
-        # 会随机留一部分教材当验证，开不开取决于样本多少，结果不好比
-        model = HistGradientBoostingRegressor(early_stopping=False)
+        # ** 把字典拆开，当成 learning_rate=0.05, max_iter=400, ... 这样的参数传进去
+        model = HistGradientBoostingRegressor(**params)
         # 空值原样交给模型，它自己决定空值走哪一边
         model.fit(inputs[~is_test], ln_k[~is_test])
         predicted[is_test] = model.predict(inputs[is_test])

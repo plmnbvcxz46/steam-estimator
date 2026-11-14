@@ -67,11 +67,14 @@ def load_train_samples(conn, min_reviews=DEFAULT_MIN_REVIEWS):
     return samples
 
 
-def make_folds(n_samples):
-    """把 n_samples 款游戏随机分进 5 折，返回每款所在的折号（0 到 4）。"""
+def make_folds(n_samples, seed=FOLD_SEED):
+    """把 n_samples 款游戏随机分进 5 折，返回每款所在的折号（0 到 4）。
+
+    平时都用默认的种子；换种子只用来检验参数之间的差距是不是碰巧。
+    """
     # 先把 0 到 n-1 随机打乱，再按“打乱后排第几”轮流发折号：
     # 排第 0、5、10…… 的进第 0 折，排第 1、6、11…… 的进第 1 折，各折人数最多差 1
-    rng = np.random.default_rng(FOLD_SEED)
+    rng = np.random.default_rng(seed)
     shuffled = rng.permutation(n_samples)
     folds = np.empty(n_samples, dtype=int)
     folds[shuffled] = np.arange(n_samples) % N_FOLDS

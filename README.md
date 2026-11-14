@@ -21,6 +21,8 @@ python -m analysis.baselines            # 两个对照（固定倍数、线性�
 python -m analysis.signal_a             # 三种方法的五折交叉验证，写 result_cv_* 表
 python -m viz.k_by_reviews              # 图表到 figures/；另有 viz.reviews_vs_players
 python -m viz.method_comparison         # 三种方法的对比图（要先跑 analysis.signal_a）
+python -m analysis.tree_params          # 树模型参数比较，写 result_cv_scores（约 5 分钟）
+python -m viz.tree_params               # 参数比较的曲线图（要先跑 analysis.tree_params）
 pytest                                  # 测试
 ```
 
@@ -33,4 +35,4 @@ python -m query <appid> [--cutoff 日期]  # 单款查询（规划中）
 
 ## 当前进度
 
-已完成采集和清洗的数据：商店信息、评测计数、评测抽样、价格历史。样本表已有训练集（2018 年 11716 款），信号 A 的四类特征都已算好；五折成绩：固定倍数的均方根误差 1.018、±30% 命中率 26.1%；线性回归 0.824、36.3%；树模型（默认参数）0.703、45.3%。参数还没调，模型还没全量训练和保存。
+已完成采集和清洗的数据：商店信息、评测计数、评测抽样、价格历史。样本表已有训练集（2018 年 11716 款），信号 A 的四类特征都已算好；五折成绩：固定倍数的均方根误差 1.018、±30% 命中率 26.1%；线性回归 0.824、36.3%；树模型 0.701、46.3%（参数已比较选定）。模型还没全量训练和保存。
