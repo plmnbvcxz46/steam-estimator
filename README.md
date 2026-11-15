@@ -23,10 +23,12 @@ python -m viz.k_by_reviews              # 图表到 figures/；另有 viz.review
 python -m viz.method_comparison         # 三种方法的对比图（要先跑 analysis.signal_a）
 python -m analysis.tree_params          # 树模型参数比较，写 result_cv_scores（约 5 分钟）
 python -m viz.tree_params               # 参数比较的曲线图（要先跑 analysis.tree_params）
+python -m analysis.feature_importance   # 特征按组重要性，写 result_cv_scores（约 1 分钟）
+python -m viz.feature_importance        # 重要性图（要先跑 analysis.feature_importance 和 analysis.signal_a）
 pytest                                  # 测试
 ```
 
-训练、评估、单款查询还没做（规划中）：
+全量训练、校准、留一法评估、单款查询还没做（规划中）：
 
 ```bash
 python -m analysis                      # 留一法评估 + 全量拟合，写 result_* 表（规划中）
@@ -35,4 +37,4 @@ python -m query <appid> [--cutoff 日期]  # 单款查询（规划中）
 
 ## 当前进度
 
-已完成采集和清洗的数据：商店信息、评测计数、评测抽样、价格历史。样本表已有训练集（2018 年 11716 款），信号 A 的四类特征都已算好；五折成绩：固定倍数的均方根误差 1.018、±30% 命中率 26.1%；线性回归 0.824、36.3%；树模型 0.701、46.3%（参数已比较选定）。模型还没全量训练和保存。
+已完成采集和清洗的数据：商店信息、评测计数、评测抽样、价格历史。样本表已有训练集（2018 年 11716 款），信号 A 的四类特征都已算好；五折成绩：固定倍数的均方根误差 1.018、±30% 命中率 26.1%；线性回归 0.824、36.3%；树模型 0.701、46.3%（参数已比较选定）。特征按组重要性已算出：8 组特征都有用，最重要的是游戏年龄、Steam 内购买占比、价格。模型还没全量训练和保存，校准和信号 B 未开始。
