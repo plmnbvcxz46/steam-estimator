@@ -1,12 +1,16 @@
-"""建样本表：各 cleaned 表 + raw_ars_players_2018 -> cleaned_samples。
+"""建样本表：各 cleaned 表 + raw_ars_players_2018 + cleaned_sales_truth -> cleaned_samples。
 
 样本表是训练唯一要读的表，一行是“一款游戏 × 一个截止日”，放三样东西：
 - 身份：sample_id、appid、cutoff_date、split（train / calib / query）
-- 答案：truth_value（训练集是 2018 年玩家数）
+- 答案：truth_value（训练集是 2018 年玩家数，校准集是公布的销量）
 - 特征：四类（商店信息、评测计数、评测抽样、历史价格），给信号 A 用
 - 信号 B 的输入：在线人数总小时 charts_total_hours，不进信号 A 的模型
 
-现在只有训练集（train）的行：校准集要等真值表导入，查询要等查询入口。
+现在有训练集（train）和校准集（calib）的行，查询要等查询入口。
+两组的区别只在“从哪张表出发、截止日是哪天”：
+- 训练集从 Ars 玩家数表出发，截止日都是 2018-07-01；
+- 校准集从销量真值表出发，截止日是每条真值自己的公布日期。
+同一款游戏两边都有时各有一行，编号不同，互不干扰。
 
 这个文件只管汇总：建表、选出哪些游戏、调各类特征的模块、写入。
 每类特征怎么算放在各自的模块里（如 review_count_features.py），
@@ -25,8 +29,12 @@ from common.log import setup_logging
 from common.paths import DB_PATH
 from pipeline.review_counts import LANGUAGES
 from pipeline.samples.charts_features import charts_features, load_monthly_hours
-from pipeline.samples.price_features import CUT_LEVELS, load_price_segments, price_features
 from pipeline.samples.playtime_features import load_playtime_inputs, playtime_features
+from pipeline.samples.price_features import (
+    CUT_LEVELS,
+    load_price_segments,
+    price_features,
+)
 from pipeline.samples.review_count_features import review_count_features
 from pipeline.samples.store_features import store_features
 
@@ -36,6 +44,7 @@ logger = logging.getLogger(__name__)
 TRAIN_CUTOFF = "2018-07-01"
 
 SPLIT_TRAIN = "train"
+SPLIT_CALIB = "calib"
 
 CREATE_TABLE_SQL = """
 CREATE TABLE cleaned_samples (
@@ -115,76 +124,121 @@ def make_sample_id(split, appid, cutoff_date):
     return f"{split}:{appid}:{cutoff_date}"
 
 
-def load_train_rows(conn):
-    """取出训练集的样本，四个条件同时满足才要：
+# 两组样本的查询都返回这几列，顺序固定：
+# appid、截止日、答案、评测数、好评数、Steam 内购买评测数、上架日、标签，最后是 13 种语言的条数
+LANGUAGE_COLUMNS = ", ".join("r.reviews_" + language for language in LANGUAGES)
+
+
+def select_train(conn):
+    """选出训练集的（游戏, 截止日）和答案，四个条件同时满足才要：
 
     1. Ars 表里有（有玩家数，才有答案）
     2. 在 cleaned_games 里（是游戏，不是 DLC、原声带）
     3. 截止日前已开卖（抢先体验也算，上架日已取三个时刻里最早的）
     4. 截止日前评测数大于 0（k = 玩家数 ÷ 评测数，分母不能是 0；
        cleaned_review_counts 里本来就没有 0 条的）
-
-    返回 dict 的列表，每个 dict 是样本表的一行。
     """
     # JOIN 要求三张表里都找得到这款游戏，条件 1、2、4 就靠它完成；只有 3 要写 WHERE。
     # 条件 3 现在其实删不掉任何游戏：上架日含“抽到的最早评测”，有评测就一定早于截止日。
     # 留着它是保险，上架日的规则以后变了也不会放进还没开卖的游戏
-    # 上架日和标签排在第 6、7 列，13 种语言的条数列按 LANGUAGES 的顺序排在最后
-    language_columns = ", ".join("r.reviews_" + language for language in LANGUAGES)
-    raw_rows = conn.execute(
+    return conn.execute(
         f"""
-        SELECT a.appid, a.players, r.total_reviews, r.positive_reviews,
-               r.steam_purchase_reviews, g.release_date, g.tags, {language_columns}
+        SELECT a.appid, r.cutoff_date, a.players, r.total_reviews, r.positive_reviews,
+               r.steam_purchase_reviews, g.release_date, g.tags, {LANGUAGE_COLUMNS}
         FROM raw_ars_players_2018 a
         JOIN cleaned_games g ON g.appid = a.appid
         JOIN cleaned_review_counts r ON r.appid = a.appid AND r.cutoff_date = ?
-        WHERE g.release_date < ?
+        WHERE g.release_date < r.cutoff_date
         ORDER BY a.appid
         """,
-        (TRAIN_CUTOFF, TRAIN_CUTOFF),
+        (TRAIN_CUTOFF,),
     ).fetchall()
 
-    # 算时长要用的抽样数据，一次读完
-    window_totals, playtimes = load_playtime_inputs(conn, TRAIN_CUTOFF)
-    # 价格段也一次读完
-    price_segments = load_price_segments(conn)
-    # 每月在线玩家小时也一次读完
-    monthly_hours = load_monthly_hours(conn)
 
-    rows = []
-    for raw_row in raw_rows:
-        appid, players, total_reviews, positive_reviews, steam_purchase_reviews = raw_row[:5]
-        release_date, tags = raw_row[5:7]
-        # 前 7 个之后就是 13 种语言的条数，和 LANGUAGES 一一配对
-        language_reviews = dict(zip(LANGUAGES, raw_row[7:]))
+def select_calib(conn):
+    """选出校准集的（游戏, 截止日）和答案。条件和训练集一样，只是从销量真值表出发，
+    截止日是每条真值的公布日期。
 
-        row = {
-            "sample_id": make_sample_id(SPLIT_TRAIN, appid, TRAIN_CUTOFF),
-            "appid": appid,
-            "cutoff_date": TRAIN_CUTOFF,
-            "split": SPLIT_TRAIN,
-            "truth_value": players,
-            "total_reviews": total_reviews,
-        }
-        row.update(
-            review_count_features(
-                total_reviews, positive_reviews, steam_purchase_reviews, language_reviews
+    同一款游戏有几条真值时各写一行，这里不挑：每款用哪一条是校准时的取舍，放在校准的代码里。
+    """
+    rows = conn.execute(
+        f"""
+        SELECT t.appid, t.report_date, t.units_sold, r.total_reviews, r.positive_reviews,
+               r.steam_purchase_reviews, g.release_date, g.tags, {LANGUAGE_COLUMNS}
+        FROM cleaned_sales_truth t
+        JOIN cleaned_games g ON g.appid = t.appid
+        JOIN cleaned_review_counts r ON r.appid = t.appid AND r.cutoff_date = t.report_date
+        WHERE g.release_date < t.report_date
+        ORDER BY t.appid, t.report_date
+        """
+    ).fetchall()
+
+    # 没进校准集的真值都记进日志，不悄悄丢
+    kept = {(row[0], row[1]) for row in rows}
+    for appid, report_date, title in conn.execute(
+        "SELECT appid, report_date, title FROM cleaned_sales_truth ORDER BY appid, report_date"
+    ):
+        if (appid, report_date) not in kept:
+            logger.info(
+                "真值 appid=%d %s（%s）没进校准集：不是游戏、截止日评测数为 0，或截止日前未上架",
+                appid,
+                report_date,
+                title,
             )
-        )
-        # 一条有时长的评测都没抽到的游戏，两个字典里都没有它，给空的
-        row.update(playtime_features(window_totals.get(appid, {}), playtimes.get(appid, [])))
-        row.update(store_features(TRAIN_CUTOFF, release_date, tags))
-        # 没有价格历史的游戏给空列表，五列都会是空
-        row.update(price_features(price_segments.get(appid, []), TRAIN_CUTOFF))
-        # SteamCharts 没收录的游戏给空列表，总小时为空
-        row.update(charts_features(monthly_hours.get(appid, []), release_date, TRAIN_CUTOFF))
-        rows.append(row)
     return rows
 
 
 def build_samples(conn):
     """重建 cleaned_samples：删旧表、建新表、写入，放在同一个事务里。"""
-    rows = load_train_rows(conn)
+    # 算特征要用的数据一次读完，训练和校准共用
+    window_totals, playtimes = load_playtime_inputs(conn)
+    price_segments = load_price_segments(conn)
+    monthly_hours = load_monthly_hours(conn)
+
+    rows = []
+    counts = {}
+    for split, selected in [
+        (SPLIT_TRAIN, select_train(conn)),
+        (SPLIT_CALIB, select_calib(conn)),
+    ]:
+        counts[split] = len(selected)
+        for selected_row in selected:
+            appid, cutoff_date, truth_value = selected_row[:3]
+            total_reviews, positive_reviews, steam_purchase_reviews = selected_row[3:6]
+            release_date, tags = selected_row[6:8]
+            # 前 8 个之后就是 13 种语言的条数，和 LANGUAGES 一一配对
+            language_reviews = dict(zip(LANGUAGES, selected_row[8:]))
+
+            # 下面每类特征都用这个样本自己的截止日，训练和校准走的是同一段代码
+            row = {
+                "sample_id": make_sample_id(split, appid, cutoff_date),
+                "appid": appid,
+                "cutoff_date": cutoff_date,
+                "split": split,
+                "truth_value": truth_value,
+                "total_reviews": total_reviews,
+            }
+            row.update(
+                review_count_features(
+                    total_reviews,
+                    positive_reviews,
+                    steam_purchase_reviews,
+                    language_reviews,
+                )
+            )
+            # 评测抽样按（游戏, 截止日）取自己那一组；一条有时长的评测都没抽到的给空的
+            key = (appid, cutoff_date)
+            row.update(
+                playtime_features(window_totals.get(key, {}), playtimes.get(key, []))
+            )
+            row.update(store_features(cutoff_date, release_date, tags))
+            # 没有价格历史的游戏给空列表，五列都会是空
+            row.update(price_features(price_segments.get(appid, []), cutoff_date))
+            # SteamCharts 没收录的游戏给空列表，总小时为空
+            row.update(
+                charts_features(monthly_hours.get(appid, []), release_date, cutoff_date)
+            )
+            rows.append(row)
 
     # 中途出错就整体撤销，旧表原样还在。要手动写 BEGIN，
     # 因为 sqlite3 模块只在 INSERT 这类语句前才自动开事务
@@ -194,7 +248,12 @@ def build_samples(conn):
         conn.execute(CREATE_TABLE_SQL)
         conn.executemany(INSERT_SQL, rows)
 
-    logger.info("cleaned_samples 写入训练集 %d 行（截止日 %s）", len(rows), TRAIN_CUTOFF)
+    logger.info(
+        "cleaned_samples 写入训练集 %d 行（截止日 %s），校准集 %d 行",
+        counts[SPLIT_TRAIN],
+        TRAIN_CUTOFF,
+        counts[SPLIT_CALIB],
+    )
 
 
 def main():

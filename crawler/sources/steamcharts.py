@@ -8,17 +8,13 @@ SteamCharts 没有接口，只有网页：https://steamcharts.com/app/<appid>
 没收录的游戏回 500 和网站的通用页，交给 get_html 认出来记“未收录”，不重试。
 """
 
-import argparse
 import logging
 import re
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 
 from common.clock import now_utc_str
-from common.log import setup_logging
-from common.paths import DB_PATH
 from crawler import crawl_log
-from crawler.appids import pick_appids
 from crawler.http import CrawlError, get_html
 
 logger = logging.getLogger(__name__)
@@ -190,29 +186,3 @@ def crawl_steamcharts(conn, appids, workers=1):
         # 正常结束或按 Ctrl+C 都会走到这里。cancel_futures=True 把还没开始的任务全部取消，
         # 否则线程池会坚持把剩下的请求发完才肯退出
         pool.shutdown(wait=True, cancel_futures=True)
-
-
-def main():
-    """命令行入口：python -m crawler.sources.steamcharts [数量] [--workers 路数]，不写数量就采全部"""
-    parser = argparse.ArgumentParser(description="采集 SteamCharts 月度在线人数")
-    parser.add_argument(
-        "limit", type=int, nargs="?", default=None,
-        help="从 Ars 表里取多少个 appid 来采；不写则采全部",
-    )
-    parser.add_argument(
-        "--workers", type=int, default=1, help="同时发请求的线程数，默认 1；全量建议 4"
-    )
-    args = parser.parse_args()
-
-    setup_logging("steamcharts.log")
-
-    conn = sqlite3.connect(DB_PATH)
-    try:
-        appids = pick_appids(conn, args.limit)
-        crawl_steamcharts(conn, appids, args.workers)
-    finally:
-        conn.close()
-
-
-if __name__ == "__main__":
-    main()

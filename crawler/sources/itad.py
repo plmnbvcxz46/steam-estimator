@@ -7,7 +7,6 @@ ITAD 不认 Steam 的 appid，所以分两步：先把 appid 换成 ITAD 的游�
 接口要 API 密钥，放在项目根目录的 .env 里（ITAD_API_KEY=...），.env 不进仓库。
 """
 
-import argparse
 import logging
 import sqlite3
 from datetime import UTC, datetime
@@ -15,10 +14,8 @@ from datetime import UTC, datetime
 from dotenv import dotenv_values
 
 from common.clock import now_utc_str
-from common.log import setup_logging
-from common.paths import DB_PATH, PROJECT_ROOT
+from common.paths import PROJECT_ROOT
 from crawler import crawl_log
-from crawler.appids import pick_appids
 from crawler.http import CrawlError, get_json, post_json
 
 logger = logging.getLogger(__name__)
@@ -261,28 +258,3 @@ def crawl_price_history(conn, appids, api_key):
 
         if index % 100 == 0 or index == len(todo):
             logger.info("价格历史进度 %d/%d", index, len(todo))
-
-
-def main():
-    """命令行入口：python -m crawler.sources.itad [数量]，不写数量就采全部"""
-    parser = argparse.ArgumentParser(description="采集 ITAD 历史价格")
-    parser.add_argument(
-        "limit", type=int, nargs="?", default=None,
-        help="从 Ars 表里取多少个 appid 来采；不写则采全部",
-    )
-    args = parser.parse_args()
-
-    setup_logging("itad.log")
-    api_key = load_api_key()
-
-    conn = sqlite3.connect(DB_PATH)
-    try:
-        appids = pick_appids(conn, args.limit)
-        crawl_itad_ids(conn, appids, api_key)
-        crawl_price_history(conn, appids, api_key)
-    finally:
-        conn.close()
-
-
-if __name__ == "__main__":
-    main()

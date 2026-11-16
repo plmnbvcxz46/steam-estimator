@@ -23,30 +23,29 @@ def weighted_median(values, weights):
             return value
 
 
-def load_playtime_inputs(conn, cutoff_date):
-    """一次读出这个截止日下所有游戏算时长要用的数据，返回两个字典：
+def load_playtime_inputs(conn):
+    """一次读出全部样本算时长要用的数据，返回两个字典，键都是 (appid, 截止日)：
 
-    - window_totals：{appid: {段号: 这一段的评测总数}}，来自 raw_review_windows
-    - playtimes：{appid: [(段号, 写评测时的游玩分钟数), ...]}，来自 raw_reviews，
+    - window_totals：{(appid, 截止日): {段号: 这一段的评测总数}}，来自 raw_review_windows
+    - playtimes：{(appid, 截止日): [(段号, 写评测时的游玩分钟数), ...]}，来自 raw_reviews，
       只要有时长的评测
 
-    一次读完再按 appid 查，不用每款游戏查一次数据库。
+    同一款游戏的每个截止日各抽了一组评测，键里带上截止日，训练和校准各取各的那组。
+    一次读完再按键查，不用每个样本查一次数据库。
     """
     window_totals = {}
-    for appid, window, total in conn.execute(
-        "SELECT appid, window, total FROM raw_review_windows WHERE cutoff_date = ?",
-        (cutoff_date,),
+    for appid, cutoff_date, window, total in conn.execute(
+        "SELECT appid, cutoff_date, window, total FROM raw_review_windows"
     ):
-        # setdefault：这款第一次出现时先放一个空字典，再往里填段号
-        window_totals.setdefault(appid, {})[window] = total
+        # setdefault：这个样本第一次出现时先放一个空字典，再往里填段号
+        window_totals.setdefault((appid, cutoff_date), {})[window] = total
 
     playtimes = {}
-    for appid, window, minutes in conn.execute(
-        "SELECT appid, window, playtime_at_review_min FROM raw_reviews"
-        " WHERE cutoff_date = ? AND playtime_at_review_min IS NOT NULL",
-        (cutoff_date,),
+    for appid, cutoff_date, window, minutes in conn.execute(
+        "SELECT appid, cutoff_date, window, playtime_at_review_min FROM raw_reviews"
+        " WHERE playtime_at_review_min IS NOT NULL"
     ):
-        playtimes.setdefault(appid, []).append((window, minutes))
+        playtimes.setdefault((appid, cutoff_date), []).append((window, minutes))
 
     return window_totals, playtimes
 

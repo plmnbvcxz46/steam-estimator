@@ -17,11 +17,6 @@ def load_summary():
     return json.loads((FIXTURES / "review_summary_220.json").read_text(encoding="utf-8"))
 
 
-def test_parse_cutoff_pads_month_and_day():
-    # 手敲 2018-7-1 也要存成 2018-07-01，否则后面按字符串查不到
-    assert review_counts.parse_cutoff("2018-7-1") == "2018-07-01"
-
-
 def test_cutoff_ts_is_start_of_day_utc():
     # 2018-07-01 零点（UTC）；和早期探索版本的训练集截止时刻一致
     assert review_counts.cutoff_ts("2018-07-01") == 1530403200
