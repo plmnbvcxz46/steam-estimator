@@ -1,7 +1,8 @@
 """合并各来源的销量真值：raw_truth_gamalytic、raw_truth_manual -> cleaned_sales_truth。
 
-每个真值来源一张 raw 表，列名各不相同；这里把它们对到同一套列上，下游（校准样本、
-按新截止日补爬评测）只读这一张表，以后加来源，下游一行都不用改。
+每个真值来源一张 raw 表，有哪些来源看 crawler.appids.TRUTH_TABLES（采集名单也读它）。
+各表的公共列名一样，这里加上来源名并成一张表，下游（校准样本）只读这一张，
+以后加来源，这里和下游一行都不用改。
 
 只合并，不做取舍：同一款的多条记录、不同来源的重复都留着，每款选哪一条放在建样本表时。
 所以各 raw 表加起来多少行，cleaned 表就有多少行。
@@ -17,14 +18,9 @@ import sqlite3
 
 from common.log import setup_logging
 from common.paths import DB_PATH
+from crawler.appids import TRUTH_TABLES
 
 logger = logging.getLogger(__name__)
-
-# 每个来源一条查询，把它的列改名成统一的列。新增来源：先写爬虫或导入脚本，再在这里加一项
-SOURCE_QUERIES = {
-    "gamalytic": "SELECT appid, report_date, title, units_sold, source_url FROM raw_truth_gamalytic",
-    "manual": "SELECT appid, report_date, title, units_sold, source_url FROM raw_truth_manual",
-}
 
 CREATE_TABLE_SQL = """
 CREATE TABLE cleaned_sales_truth (
@@ -52,8 +48,10 @@ def main():
     try:
         # 1. 逐个来源读出来，每行前面加上来源名
         rows = []
-        for source, query in SOURCE_QUERIES.items():
-            source_rows = conn.execute(query).fetchall()
+        for source, table in TRUTH_TABLES.items():
+            source_rows = conn.execute(
+                f"SELECT appid, report_date, title, units_sold, source_url FROM {table}"
+            ).fetchall()
             logger.info("%s：%d 行", source, len(source_rows))
             for row in source_rows:
                 rows.append((source, *row))
