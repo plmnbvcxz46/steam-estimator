@@ -79,8 +79,8 @@ $$
 crawler/   pipeline/   analysis/   viz/   # 四个模块；各脚本入口为 python -m 模块.脚本，模块本身没有入口
   crawler/sources/                       # 一个数据源一个文件，入口为 python -m crawler.sources.<数据源>：ars、itad、review_counts、reviews、steamcharts、store_items
   pipeline/ 现有脚本                      # games、prices、review_counts、charts；样本表是一个包 pipeline/samples/，入口为 python -m pipeline.samples
-  viz/ 现有脚本                           # k_by_reviews、reviews_vs_players、method_comparison、tree_params、feature_importance
-  analysis/                              # evaluation（读训练样本、分折、算误差、存成绩）、model_inputs（样本表转模型输入）、baselines（固定倍数、线性回归两个对照）、signal_a（树模型，三种方法的五折成绩）、tree_params（参数比较）、feature_importance（特征按组重要性）
+  viz/ 现有脚本                           # k_by_reviews、reviews_vs_players、method_comparison、tree_params、feature_importance、signal_b_fit、signal_b_comparison
+  analysis/                              # evaluation（读训练样本、分折、算误差、存成绩）、model_inputs（样本表转模型输入）、baselines（固定倍数、线性回归两个对照）、signal_a（树模型，三种方法的五折成绩）、tree_params（参数比较）、feature_importance（特征按组重要性）、signal_b（信号 B 的五折成绩，和 A 在能算 B 的游戏上比）
   crawler/ 其余文件                       # 各数据源共用的采集基础设施：请求、采集日志
 common/                                  # 各模块共用的小工具：路径、日志、时间；不含业务逻辑
 query/                                   # 单款查询入口（未实现）
@@ -432,7 +432,7 @@ $$
 | 二 | 采集与导入 | 评测计数与抽样、商店信息、在线人数、历史价格的采集；近年真值表的导入。商店信息、评测计数、评测抽样、价格历史、在线人数已完成；近年真值表未开始 | 进行中 |
 | 三 | 管道 | 清洗、对齐、特征、样本划分。`cleaned_games`、`cleaned_review_counts`、`cleaned_prices`、`cleaned_charts_monthly` 已完成；样本表的训练集已完成（含信号 B 的总游玩小时），校准集和查询样本未开始 | 进行中 |
 | 四 | 信号 A | 树模型、校准、评估框架、留一法评估 | 进行中：评估框架、两个对照（固定倍数、线性回归）、树模型的五折评估、参数比较和特征按组重要性已完成 |
-| 五 | 信号 B 与融合 | 信号 B、融合、置信标签 | 进行中：在线人数采集、总游玩小时 $H$ 已完成；人均小时拟合、融合、置信标签未开始 |
+| 五 | 信号 B 与融合 | 信号 B、融合、置信标签 | 进行中：在线人数采集、总游玩小时 $H$、人均小时拟合和信号 B 的五折成绩已完成；融合、置信标签未开始 |
 | 六 | 全量拟合 | 用全部数据拟合最终模型与参数，保存后冻结 | 未开始 |
 | 七 | 可视化与查询 | 生成全部图表；单款查询入口。已有 5 张图（评测数与玩家数、按评测数分档的 $k$ 波动、三种方法对比、树模型参数比较、特征重要性），其余图和单款查询未开始 | 进行中 |
 | 八 | 收尾 | 报告、案例 | 未开始 |
