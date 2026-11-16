@@ -22,7 +22,6 @@ import numpy as np
 import pandas as pd
 
 from analysis.calibration import INTERVAL_LEVEL, MIN_AGE_YEARS
-from analysis.evaluation import DEFAULT_MIN_REVIEWS
 from analysis.fusion import REVIEW_BIN_STARTS
 from analysis.model_inputs import build_inputs
 from common.clock import now_utc_str
@@ -36,9 +35,15 @@ from crawler.sources.steamcharts import crawl_steamcharts
 from crawler.sources.store_items import crawl_store_items, crawl_tag_names
 from pipeline.samples.build import SPLIT_QUERY, make_sample_id
 
+# 置信标签的两个阈值（DEVELOPMENT 4.4）：两路分歧 D 的上限（e^0.5 ≈ 1.65 倍）、评测数
+DIVERGENCE_LIMIT = 0.5
+LABEL_MIN_REVIEWS = 500
+
 
 def estimate(sample, frozen):
-    """用冻结的模型估一款游戏，返回 (估计销量, 区间下限, 区间上限, 有没有 B)。
+    """用冻结的模型估一款游戏，返回 (估计销量, 区间下限, 区间上限, 两路的分歧 D)。
+
+    D = |A − B|（都是 ln k），没有 B 时为 None。
 
     sample 是样本表里这一款的一行（pandas 表，只有一行）。公式和 analysis.calibration 一样，
     只是系数都从冻结文件里取，不再拟合。
@@ -62,13 +67,33 @@ def estimate(sample, frozen):
         # 融合：按评测数所在的档取 A 的占比
         a_share = frozen["a_share_by_bin"][np.digitize(reviews, REVIEW_BIN_STARTS[1:])]
         ln_k = a_share * signal_a + (1 - a_share) * signal_b
+        divergence = abs(signal_a - signal_b)
     else:
         ln_k = signal_a
+        divergence = None
 
     # 销量 = 评测数 × k；区间 = 估计 × 上下倍数，有 B、没 B 各用各的
     units = reviews * np.exp(ln_k)
     low, high = frozen["interval_ratios"][has_b]
-    return units, units * low, units * high, has_b
+    return units, units * low, units * high, divergence
+
+
+def confidence_label(reviews, divergence):
+    """置信标签，规则见 DEVELOPMENT 4.4，在看到留一法结果之前定的，之后没调：
+
+    有 B：两路相差超过约 1.65 倍（D > 0.5）为“低”；否则评测至少 500 条为“高”，不到为“中”。
+    没有 B：评测至少 500 条为“中”，不到为“低（外推）”。
+    留一法下“高”的 41 款 ±30% 命中 66%，差两倍以上的只有 1 款。
+    """
+    if divergence is not None:
+        if divergence > DIVERGENCE_LIMIT:
+            return "低（两路估计分歧大）"
+        if reviews >= LABEL_MIN_REVIEWS:
+            return "高"
+        return "中"
+    if reviews >= LABEL_MIN_REVIEWS:
+        return "中（没有在线人数数据）"
+    return "低（外推：没有在线人数数据，评测也少）"
 
 
 def main():
@@ -124,17 +149,10 @@ def main():
     if sample.empty:
         sys.exit(f"appid={appid} 没进样本表：不是游戏（DLC、原声带等）、还没上架，或者一条评测都没有")
 
-    units, low, high, has_b = estimate(sample, frozen)
+    units, low, high, divergence = estimate(sample, frozen)
     reviews = sample["total_reviews"].iloc[0]
     title = title_row[0] if title_row else "（未知名称）"
-
-    # 置信标签：有 B 的多一路信息，区间窄得多；评测太少的在模型学过的范围之外
-    if reviews < DEFAULT_MIN_REVIEWS:
-        label = f"不可信（评测只有 {reviews} 条，模型只学过 {DEFAULT_MIN_REVIEWS} 条以上的）"
-    elif has_b:
-        label = "较可信（有在线人数数据）"
-    else:
-        label = "仅供参考（没有在线人数数据）"
+    label = confidence_label(reviews, divergence)
 
     print(f"{title}（{appid}）  截止 {today}，评测 {reviews} 条")
     print(f"估计销量：约 {units:,.0f} 份")
