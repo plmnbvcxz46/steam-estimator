@@ -15,14 +15,19 @@ def load_monthly_hours(conn):
 
     返回 {appid: [(month, player_hours), ...]}，每款按月份从早到晚排好。
     """
-    # TODO 填实现
-    raise NotImplementedError
+    rows = conn.execute(
+        "SELECT appid, month, player_hours FROM cleaned_charts_monthly ORDER BY appid, month"
+    ).fetchall()
+    grouped = {}
+    for appid, month, player_hours in rows:
+        grouped.setdefault(appid, []).append((month, player_hours))
+    return grouped
 
 
 def month_index(month):
     """把 "2018-06" 换成一个整数，相邻两个月差 1，用来算两个月份差几个月。"""
-    # TODO 填实现：年 × 12 + 月
-    raise NotImplementedError
+    year, month_number = month.split("-")
+    return int(year) * 12 + int(month_number)
 
 
 def charts_features(months, release_date, cutoff_date):
@@ -32,9 +37,22 @@ def charts_features(months, release_date, cutoff_date):
     release_date、cutoff_date 是 "YYYY-MM-DD" 文字。
     返回一个 dict：charts_total_hours，共 1 项；算不了时为 None。
     """
-    # TODO 填实现：
-    # 1. 没有记录，给空
-    # 2. 第一条记录比上架月晚超过 MAX_LATE_MONTHS 个月，给空
-    # 3. 只留截止日所在月之前的月份；一个都不剩，给空
-    # 4. 把剩下各月的玩家小时加起来
-    raise NotImplementedError
+    # 1. 没收录的游戏没有记录
+    if not months:
+        return {"charts_total_hours": None}
+
+    # 2. 记录开始得太晚，漏掉了上架初期玩家最多的几个月，加出来会严重偏小。
+    #    第一条记录早于上架月的不拦：说明上架前就有人在玩（抢先体验、测试），照样从第一条加
+    first_month = months[0][0]
+    release_month = release_date[:7]  # "2015-03-20" -> "2015-03"
+    if month_index(first_month) - month_index(release_month) > MAX_LATE_MONTHS:
+        return {"charts_total_hours": None}
+
+    # 3. 截止日所在月还没过完，只用它之前的整月。月份是 "YYYY-MM" 文字，按文字比大小就是按时间比
+    cutoff_month = cutoff_date[:7]
+    before_cutoff = [hours for month, hours in months if month < cutoff_month]
+    if not before_cutoff:
+        return {"charts_total_hours": None}
+
+    # 4. 每个月都按整月算，直接加
+    return {"charts_total_hours": sum(before_cutoff)}
