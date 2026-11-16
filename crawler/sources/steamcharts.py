@@ -113,8 +113,36 @@ def save_months(conn, appid, rows):
 
 def crawl_steamcharts(conn, appids):
     """逐款取网页、解析、入库。已有定论的跳过，中断后重跑同一条命令即可续上。"""
-    # TODO 填实现：算出待采列表，逐款 get_html → parse_months → save_months，失败记日志
-    raise NotImplementedError
+    ensure_tables(conn)
+
+    done = crawl_log.done_keys(conn, SOURCE)
+    todo = [appid for appid in appids if str(appid) not in done]
+    logger.info("SteamCharts：共 %d 款，已完成 %d 款，本次要采 %d 款", len(appids), len(appids) - len(todo), len(todo))
+
+    for index, appid in enumerate(todo, start=1):
+        try:
+            page = get_html(
+                PAGE_URL.format(appid=appid),
+                min_interval=MIN_INTERVAL,
+                not_found_marker=NOT_TRACKED_MARKER,
+            )
+            rows = parse_months(appid, page)
+            save_months(conn, appid, rows)
+        except CrawlError as err:
+            # 包括“未收录”：get_html 已经把状态定好，原样记下
+            logger.warning("appid=%d 请求失败: %s", appid, err)
+            with conn:
+                crawl_log.record(conn, SOURCE, appid, err.status)
+            continue
+        except (KeyError, ValueError, sqlite3.IntegrityError) as err:
+            # 页面看不懂、同一个月出现两次：记下原因，跳过这款，不让整次采集崩掉
+            logger.warning("appid=%d 解析失败: %r", appid, err)
+            with conn:
+                crawl_log.record(conn, SOURCE, appid, crawl_log.PARSE_ERROR)
+            continue
+
+        if index % 100 == 0 or index == len(todo):
+            logger.info("SteamCharts 进度 %d/%d", index, len(todo))
 
 
 def main():
