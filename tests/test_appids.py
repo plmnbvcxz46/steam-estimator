@@ -1,6 +1,6 @@
 import sqlite3
 
-from crawler.appids import TRAIN_CUTOFF, TRUTH_TABLES, pick_appids
+from crawler.appids import CREATE_QUERY_TABLE_SQL, TRAIN_CUTOFF, TRUTH_TABLES, pick_appids
 
 
 def make_conn():
@@ -9,6 +9,7 @@ def make_conn():
     conn.executemany("INSERT INTO raw_ars_players_2018 VALUES (?)", [(i,) for i in range(1, 101)])
     for table in TRUTH_TABLES.values():
         conn.execute(f"CREATE TABLE {table} (appid INTEGER, report_date TEXT)")
+    conn.execute(CREATE_QUERY_TABLE_SQL)
     return conn
 
 
