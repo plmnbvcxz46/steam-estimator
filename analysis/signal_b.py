@@ -10,10 +10,19 @@ A 的预测直接读五折预测表里树模型那一份，所以要先跑 pytho
 入口：python -m analysis.signal_b
 """
 
+import numpy as np
+
 
 def fit_line(x, y):
-    """最小二乘拟合一条直线 y = a + b × x，返回 (a, b)。"""
-    raise NotImplementedError
+    """最小二乘拟合一条直线 y = a + b × x，返回 (a, b)。
+
+    最小二乘：让每个点到直线的竖直距离平方后加起来最小。
+    成绩也按误差的平方算（均方根误差），两边是同一个标准。
+    """
+    # 直线是一次多项式，polyfit 的第三个参数 1 就是“一次”。
+    # 它按次数从高到低返回系数：先斜率 b，再截距 a
+    b, a = np.polyfit(x, y, 1)
+    return a, b
 
 
 def signal_b_cv(samples, folds):
