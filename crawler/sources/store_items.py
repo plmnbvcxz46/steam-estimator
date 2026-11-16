@@ -4,16 +4,11 @@
 全部一万三千多款只要几十次请求。
 """
 
-import argparse
 import json
 import logging
-import sqlite3
 
 from common.clock import now_utc_str
-from common.log import setup_logging
-from common.paths import DB_PATH
 from crawler import crawl_log
-from crawler.appids import pick_appids
 from crawler.http import CrawlError, get_json
 
 logger = logging.getLogger(__name__)
@@ -281,33 +276,3 @@ def crawl_tag_names(conn):
     response = get_json(TAGS_URL, params={"language": "english"}, min_interval=MIN_INTERVAL)
     count = save_tag_names(conn, response["response"]["tags"])
     logger.info("标签名单 %d 个", count)
-
-
-def main():
-    """命令行入口：python -m crawler.sources.store_items [数量] [--backfill-original-release]"""
-    parser = argparse.ArgumentParser(description="采集 Steam 商店信息和标签")
-    parser.add_argument(
-        "limit", type=int, nargs="?", default=None,
-        help="从 Ars 表里取多少个 appid 来爬；不写则爬全部",
-    )
-    parser.add_argument(
-        "--backfill-original-release", action="store_true",
-        help="只给表里已有的游戏补 original_release_ts 这一列，不做别的",
-    )
-    args = parser.parse_args()
-
-    setup_logging("store_items.log")
-
-    conn = sqlite3.connect(DB_PATH)
-    try:
-        if args.backfill_original_release:
-            backfill_original_release(conn)
-            return
-        crawl_store_items(conn, pick_appids(conn, args.limit))
-        crawl_tag_names(conn)
-    finally:
-        conn.close()
-
-
-if __name__ == "__main__":
-    main()

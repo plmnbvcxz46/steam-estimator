@@ -11,18 +11,13 @@
               |- save_result    把一个任务的结果写进数据库（只由主线程做）
 """
 
-import argparse
 import json
 import logging
-import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 
 from common.clock import now_utc_str
-from common.log import setup_logging
-from common.paths import DB_PATH
 from crawler import crawl_log
-from crawler.appids import pick_appids
 from crawler.http import CrawlError, get_json
 
 logger = logging.getLogger(__name__)
@@ -34,7 +29,6 @@ URL = "https://api.steampowered.com/IUserReviewsService/GetAppReviews/v1/"
 # 阿里云一次约 0.2 秒，16 路就够。实测记录见 docs/devlog.md
 MIN_INTERVAL = 0.05
 PROGRESS_EVERY = 300  # 每完成多少次请求打一行进度
-DEFAULT_CUTOFF = "2018-07-01"  # 原型阶段的截止日（Ars 玩家数表的日期）
 
 # query 是请求口径，表示这次请求是怎么筛评测的。每次请求写一行，同时存评测总数和其中的好评数。
 # 它是我们自己起的标签，只存进表和日志，不发给 Steam；用英文，方便写 SQL 和以后转成列名。
@@ -96,16 +90,6 @@ INSERT_SQL = """
 INSERT OR REPLACE INTO raw_review_counts (appid, cutoff_date, query, total, positive, fetched_at)
 VALUES (:appid, :cutoff_date, :query, :total, :positive, :fetched_at)
 """
-
-
-def parse_cutoff(text):
-    """把命令行传进来的截止日统一成 YYYY-MM-DD。
-
-    strptime 很宽松，"2018-7-1" 也能解析。但截止日是原样存进表里的，后面的清洗和画图
-    都按 '2018-07-01' 这个字符串来查，存成 "2018-7-1" 就会查不到，而且不报错。
-    格式完全不对时 strptime 会抛 ValueError，argparse 会把它显示成参数错误。
-    """
-    return datetime.strptime(text, "%Y-%m-%d").strftime("%Y-%m-%d")
 
 
 def cutoff_ts(cutoff_date):
@@ -269,7 +253,7 @@ def save_result(conn, result):
         crawl_log.record(conn, SOURCE, key, result["status"])
 
 
-def crawl_review_counts(conn, appids, cutoff_date=DEFAULT_CUTOFF, workers=1):
+def crawl_review_counts(conn, appids, cutoff_date, workers=1):
     """采集 appids 在 cutoff_date 的评测计数，写入 raw_review_counts，并在 raw_crawl_log 记结局。
 
     workers 是同时发请求的线程数；1 就是一个一个来。
@@ -304,41 +288,3 @@ def crawl_review_counts(conn, appids, cutoff_date=DEFAULT_CUTOFF, workers=1):
         # 正常结束或按 Ctrl+C 都会走到这里。cancel_futures=True 把还没开始的任务全部取消，
         # 否则线程池会坚持把剩下的十几万次请求发完才肯退出
         pool.shutdown(wait=True, cancel_futures=True)
-
-
-def main():
-    """命令行入口：python -m crawler.sources.review_counts [数量] [--cutoff 日期] [--workers 路数]"""
-    parser = argparse.ArgumentParser(description="采集 Steam 评测计数")
-    parser.add_argument(
-        "limit",
-        type=int,
-        nargs="?",
-        default=None,
-        help="从 Ars 表里取多少个 appid 来爬；不写则爬全部",
-    )
-    parser.add_argument(
-        "--cutoff", type=parse_cutoff, default=DEFAULT_CUTOFF, help="截止日，格式 YYYY-MM-DD"
-    )
-    parser.add_argument(
-        "--workers",
-        type=int,
-        default=1,
-        help="同时发请求的线程数，默认 1；速度上限由 MIN_INTERVAL 决定；不要超过 crawler.http.POOL_SIZE",
-    )
-    args = parser.parse_args()
-
-    setup_logging("review_counts.log")
-
-    # 取哪些 appid：沿用 crawler.appids.pick_appids（从 Ars 表按固定种子打乱取前 N）；
-    # 以后“评测数 >= 500”的筛选属于 pipeline，不在这里做。
-    conn = sqlite3.connect(DB_PATH)
-    try:
-        crawl_review_counts(
-            conn, pick_appids(conn, args.limit), args.cutoff, args.workers
-        )
-    finally:
-        conn.close()
-
-
-if __name__ == "__main__":
-    main()

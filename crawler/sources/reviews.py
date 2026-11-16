@@ -19,18 +19,13 @@
               |- save_result      把一个任务的结果写进数据库（只由主线程做）
 """
 
-import argparse
 import json
 import logging
-import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 
 from common.clock import now_utc_str
-from common.log import setup_logging
-from common.paths import DB_PATH
 from crawler import crawl_log
-from crawler.appids import pick_appids
 from crawler.http import CrawlError, get_json
 from crawler.sources import review_counts
 
@@ -302,39 +297,3 @@ def crawl_reviews(conn, appids, cutoff_date, workers=1):
                 logger.info("进度 %d/%d 次请求", done_count, len(jobs))
     finally:
         pool.shutdown(wait=True, cancel_futures=True)
-
-
-def main():
-    """命令行入口：python -m crawler.sources.reviews [数量] [--cutoff 日期] [--workers 路数]"""
-    parser = argparse.ArgumentParser(description="采集抽样评测")
-    parser.add_argument(
-        "limit",
-        type=int,
-        nargs="?",
-        default=None,
-        help="从 Ars 表里取多少个 appid；不写则全部",
-    )
-    parser.add_argument(
-        "--cutoff",
-        type=review_counts.parse_cutoff,
-        default=review_counts.DEFAULT_CUTOFF,
-        help="截止日，格式 YYYY-MM-DD",
-    )
-    parser.add_argument(
-        "--workers", type=int, default=1, help="同时发请求的线程数，默认 1"
-    )
-    args = parser.parse_args()
-
-    setup_logging("reviews.log")
-
-    conn = sqlite3.connect(DB_PATH)
-    try:
-        crawl_reviews(
-            conn, pick_appids(conn, args.limit), args.cutoff, args.workers
-        )
-    finally:
-        conn.close()
-
-
-if __name__ == "__main__":
-    main()
