@@ -10,6 +10,7 @@ SteamCharts 没有接口，只有网页：https://steamcharts.com/app/<appid>
 
 import argparse
 import logging
+import re
 import sqlite3
 
 from common.clock import now_utc_str
@@ -62,8 +63,35 @@ def parse_months(appid, page):
     外部网页要严格校验：找不到表、某一行看不懂，都抛 ValueError，由调用者记 parse_error，
     不悄悄跳过，免得网站改版后存进一半数据。
     """
-    # TODO 填实现：找出表格的每一行，跳过 Last 30 Days，其余换成月份、平均、峰值
-    raise NotImplementedError
+    # 页面里只有月份表有 <tbody>。不是正好一个，说明页面变了样，不往下猜
+    bodies = re.findall(r"<tbody>(.*?)</tbody>", page, re.S)
+    if len(bodies) != 1:
+        raise ValueError(f"appid={appid} 页面里有 {len(bodies)} 个表体，应为 1 个")
+
+    rows = []
+    for tr in re.findall(r"<tr[^>]*>(.*?)</tr>", bodies[0], re.S):
+        # 取出每一格的文字：去掉格子里的标签，再去掉前后的空白和换行
+        cells = [
+            re.sub(r"<[^>]+>", "", td).strip()
+            for td in re.findall(r"<td[^>]*>(.*?)</td>", tr, re.S)
+        ]
+        if len(cells) != 5:
+            raise ValueError(f"appid={appid} 有一行是 {len(cells)} 格，应为 5 格: {cells}")
+        if cells[0] == "Last 30 Days":
+            continue  # 最近 30 天，不是整月
+
+        # "June 2018" -> "2018-06"；月份名不认识会抛 KeyError，同样记 parse_error
+        month_name, year = cells[0].split()
+        month = f"{int(year)}-{MONTHS[month_name]:02d}"
+        rows.append(
+            {
+                "appid": appid,
+                "month": month,
+                "avg_players": float(cells[1]),
+                "peak_players": int(cells[4]),
+            }
+        )
+    return rows
 
 
 def save_months(conn, appid, rows):
