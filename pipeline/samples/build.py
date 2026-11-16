@@ -3,7 +3,8 @@
 样本表是训练唯一要读的表，一行是“一款游戏 × 一个截止日”，放三样东西：
 - 身份：sample_id、appid、cutoff_date、split（train / calib / query）
 - 答案：truth_value（训练集是 2018 年玩家数）
-- 特征：四类（商店信息、评测计数、评测抽样、历史价格），之后逐类加
+- 特征：四类（商店信息、评测计数、评测抽样、历史价格），给信号 A 用
+- 信号 B 的输入：在线人数总小时 charts_total_hours，不进信号 A 的模型
 
 现在只有训练集（train）的行：校准集要等真值表导入，查询要等查询入口。
 
@@ -23,6 +24,7 @@ import sqlite3
 from common.log import setup_logging
 from common.paths import DB_PATH
 from pipeline.review_counts import LANGUAGES
+from pipeline.samples.charts_features import charts_features, load_monthly_hours
 from pipeline.samples.price_features import CUT_LEVELS, load_price_segments, price_features
 from pipeline.samples.playtime_features import load_playtime_inputs, playtime_features
 from pipeline.samples.review_count_features import review_count_features
@@ -67,7 +69,8 @@ CREATE TABLE cleaned_samples (
     avg_price_usd        REAL,
     frac_time_cut25      REAL,
     frac_time_cut50      REAL,
-    frac_time_cut75      REAL
+    frac_time_cut75      REAL,
+    charts_total_hours   REAL
 )
 """
 
@@ -94,6 +97,7 @@ SAMPLE_COLUMNS.append("price_at_cutoff_usd")
 SAMPLE_COLUMNS.append("avg_price_usd")
 for level in CUT_LEVELS:
     SAMPLE_COLUMNS.append(f"frac_time_cut{level}")
+SAMPLE_COLUMNS.append("charts_total_hours")
 
 INSERT_SQL = (
     "INSERT INTO cleaned_samples (" + ", ".join(SAMPLE_COLUMNS) + ")"
@@ -144,6 +148,8 @@ def load_train_rows(conn):
     window_totals, playtimes = load_playtime_inputs(conn, TRAIN_CUTOFF)
     # 价格段也一次读完
     price_segments = load_price_segments(conn)
+    # 每月在线玩家小时也一次读完
+    monthly_hours = load_monthly_hours(conn)
 
     rows = []
     for raw_row in raw_rows:
@@ -170,6 +176,8 @@ def load_train_rows(conn):
         row.update(store_features(TRAIN_CUTOFF, release_date, tags))
         # 没有价格历史的游戏给空列表，五列都会是空
         row.update(price_features(price_segments.get(appid, []), TRAIN_CUTOFF))
+        # SteamCharts 没收录的游戏给空列表，总小时为空
+        row.update(charts_features(monthly_hours.get(appid, []), release_date, TRAIN_CUTOFF))
         rows.append(row)
     return rows
 

@@ -15,8 +15,8 @@ pip install -r requirements.txt
 
 ```bash
 python -m crawler.sources.<源>          # 采集到 steam.db 的 raw_* 表；源：store_items、review_counts、reviews、itad、ars、steamcharts
-python -m pipeline.games                # 清洗，写 cleaned_* 表；另有 pipeline.prices、pipeline.review_counts
-python -m pipeline.samples              # 样本表 cleaned_samples（要先跑完上面三个清洗）
+python -m pipeline.games                # 清洗，写 cleaned_* 表；另有 pipeline.prices、pipeline.review_counts、pipeline.charts
+python -m pipeline.samples              # 样本表 cleaned_samples（要先跑完上面四个清洗）
 python -m analysis.baselines            # 两个对照（固定倍数、线性回归）的五折交叉验证成绩
 python -m analysis.signal_a             # 三种方法的五折交叉验证，写 result_cv_* 表
 python -m viz.k_by_reviews              # 图表到 figures/；另有 viz.reviews_vs_players
@@ -37,4 +37,4 @@ python -m query <appid> [--cutoff 日期]  # 单款查询（规划中）
 
 ## 当前进度
 
-已完成采集和清洗的数据：商店信息、评测计数、评测抽样、价格历史。样本表已有训练集（2018 年 11716 款），信号 A 的四类特征都已算好；五折成绩：固定倍数的均方根误差 1.018、±30% 命中率 26.1%；线性回归 0.824、36.3%；树模型 0.701、46.3%（参数已比较选定）。特征按组重要性已算出：8 组特征都有用，最重要的是游戏年龄、Steam 内购买占比、价格。模型还没全量训练和保存，校准和信号 B 未开始。
+已完成采集和清洗的数据：商店信息、评测计数、评测抽样、价格历史、在线人数（SteamCharts）。样本表已有训练集（2018 年 11716 款），信号 A 的四类特征都已算好；五折成绩：固定倍数的均方根误差 1.018、±30% 命中率 26.1%；线性回归 0.824、36.3%；树模型 0.701、46.3%（参数已比较选定）。特征按组重要性已算出：8 组特征都有用，最重要的是游戏年龄、Steam 内购买占比、价格。信号 B 的总游玩小时已进样本表：训练集评测 10 条以上的游戏里 3722 款能算；人均小时的拟合和信号 B 的成绩还没做。模型还没全量训练和保存，校准未开始。
