@@ -18,7 +18,7 @@ import sqlite3
 
 from common.log import setup_logging
 from common.paths import DB_PATH
-from crawler.appids import pick_appids
+from crawler.appids import CREATE_QUERY_TABLE_SQL, pick_appids
 from crawler.sources import gamalytic, manual_truth
 from crawler.sources.itad import crawl_itad_ids, crawl_price_history, load_api_key
 from crawler.sources.review_counts import crawl_review_counts
@@ -45,6 +45,10 @@ def main():
 
     conn = sqlite3.connect(DB_PATH)
     try:
+        # 还没查询过时这张表不存在，名单要读它，先建好
+        with conn:
+            conn.execute(CREATE_QUERY_TABLE_SQL)
+
         # 2. 名单：[(appid, 截止日), ...]。按游戏采的数据源只要不重复的 appid
         targets = pick_appids(conn, None)
         appids = sorted({appid for appid, _ in targets})

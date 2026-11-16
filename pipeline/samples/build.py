@@ -6,10 +6,10 @@
 - 特征：四类（商店信息、评测计数、评测抽样、历史价格），给信号 A 用
 - 信号 B 的输入：在线人数总小时 charts_total_hours，不进信号 A 的模型
 
-现在有训练集（train）和校准集（calib）的行，查询要等查询入口。
-两组的区别只在“从哪张表出发、截止日是哪天”：
-- 训练集从 Ars 玩家数表出发，截止日都是 2018-07-01；
-- 校准集从销量真值表出发，截止日是每条真值自己的公布日期。
+三组的区别只在“从哪张表出发、截止日是哪天”：
+- 训练集（train）从 Ars 玩家数表出发，截止日都是 2018-07-01；
+- 校准集（calib）从销量真值表出发，截止日是每条真值自己的公布日期；
+- 查询（query）从 raw_query_targets 出发，截止日是查询那天，没有答案。
 同一款游戏两边都有时各有一行，编号不同，互不干扰。
 
 这个文件只管汇总：建表、选出哪些游戏、调各类特征的模块、写入。
@@ -45,6 +45,7 @@ TRAIN_CUTOFF = "2018-07-01"
 
 SPLIT_TRAIN = "train"
 SPLIT_CALIB = "calib"
+SPLIT_QUERY = "query"
 
 CREATE_TABLE_SQL = """
 CREATE TABLE cleaned_samples (
@@ -188,6 +189,26 @@ def select_calib(conn):
     return rows
 
 
+def select_query(conn):
+    """选出查询过的（游戏, 截止日）。条件和训练集、校准集一样，只是从 raw_query_targets 出发，
+    截止日是查询那天；没有答案，第三列给 NULL。
+
+    查询入口会先记一行再采集，所以这里总能对上；对不上的（不是游戏、评测为 0）不进样本表，
+    查询入口找不到这一行就会报错说明原因。
+    """
+    return conn.execute(
+        f"""
+        SELECT q.appid, q.cutoff_date, NULL, r.total_reviews, r.positive_reviews,
+               r.steam_purchase_reviews, g.release_date, g.tags, {LANGUAGE_COLUMNS}
+        FROM raw_query_targets q
+        JOIN cleaned_games g ON g.appid = q.appid
+        JOIN cleaned_review_counts r ON r.appid = q.appid AND r.cutoff_date = q.cutoff_date
+        WHERE g.release_date < q.cutoff_date
+        ORDER BY q.appid, q.cutoff_date
+        """
+    ).fetchall()
+
+
 def build_samples(conn):
     """重建 cleaned_samples：删旧表、建新表、写入，放在同一个事务里。"""
     # 算特征要用的数据一次读完，训练和校准共用
@@ -200,6 +221,7 @@ def build_samples(conn):
     for split, selected in [
         (SPLIT_TRAIN, select_train(conn)),
         (SPLIT_CALIB, select_calib(conn)),
+        (SPLIT_QUERY, select_query(conn)),
     ]:
         counts[split] = len(selected)
         for selected_row in selected:
@@ -249,10 +271,11 @@ def build_samples(conn):
         conn.executemany(INSERT_SQL, rows)
 
     logger.info(
-        "cleaned_samples 写入训练集 %d 行（截止日 %s），校准集 %d 行",
+        "cleaned_samples 写入训练集 %d 行（截止日 %s），校准集 %d 行，查询 %d 行",
         counts[SPLIT_TRAIN],
         TRAIN_CUTOFF,
         counts[SPLIT_CALIB],
+        counts[SPLIT_QUERY],
     )
 
 

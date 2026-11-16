@@ -9,4 +9,5 @@ DATA_DIR = PROJECT_ROOT / "data"
 SOURCE_DIR = DATA_DIR / "source"  # 外部原件
 LOG_DIR = DATA_DIR / "logs"
 DB_PATH = DATA_DIR / "steam.db"
+FROZEN_MODEL_PATH = DATA_DIR / "models" / "frozen.joblib"  # 冻结的模型，analysis.calibration 写，查询读
 FIGURES_DIR = PROJECT_ROOT / "figures"  # 生成的图

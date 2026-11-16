@@ -14,6 +14,9 @@
 会把老游戏估高、刚上架的估低；树看不到近年的真值，只能在校准这一步纠正。
 校准公式还试过加“政策后评测占比”和“评测数”两项，留一法下误差都不降，没有加。
 
+最后冻结：树、标签清单、两路的系数、各档占比、预测区间倍数存进 data/models/frozen.joblib，
+查询新游戏时只读这个文件，不再训练。
+
 训练时不读校准集里也有的游戏。结果写进五折成绩表（experiment = calibration、calibration_with_b），
 要先跑 analysis.signal_a、analysis.signal_b（各档占比读它们存的五折预测）。
 
@@ -22,6 +25,7 @@
 
 import sqlite3
 
+import joblib
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import HistGradientBoostingRegressor
@@ -36,11 +40,15 @@ from analysis.fusion import REVIEW_BIN_STARTS
 from analysis.model_inputs import build_inputs, choose_tags
 from analysis.signal_a import TREE_PARAMS
 from analysis.signal_b import fit_line
-from common.paths import DB_PATH
+from common.paths import DB_PATH, FROZEN_MODEL_PATH
 
 # 校准里游戏年龄取对数前的下限：30 天。上架 1 天和上架 30 天取对数后差得很远，
 # 而校准集里刚上架几天的游戏只有几款，不设下限的话年龄这一项的系数会被它们带着走
 MIN_AGE_YEARS = 30 / 365
+
+# 预测区间取 80%：两头各去掉 10%。没有 B 的游戏只有 38 款，取 90% 时两头各只剩 2 款左右，
+# 边界由一两款极端游戏决定，换一批游戏就大变；取 80% 时两头各 4 款左右，稳得多
+INTERVAL_LEVEL = 0.8
 
 
 def load_calib_samples(conn, min_reviews=DEFAULT_MIN_REVIEWS):
@@ -63,9 +71,10 @@ def load_calib_samples(conn, min_reviews=DEFAULT_MIN_REVIEWS):
 
 
 def raw_estimates(train, calib):
-    """用训练集得到校准集每款游戏“校准前”的两路估计，返回 (树的 ln k, B 的 ln k)。
+    """用训练集得到校准集每款游戏“校准前”的两路估计。
 
-    B 只有能算总小时的游戏有，其余是 NaN。
+    返回 (树的 ln k, B 的 ln k, 树模型, 标签清单, (a, b))。后三样是学出来的东西，
+    冻结时存下来，查询新游戏时要用。B 只有能算总小时的游戏有，其余是 NaN。
     """
     # 信号 A：标签清单只从训练集选，训练和校准按同一份清单展开，两边的列才对得上
     tag_list = choose_tags(train["tags"])
@@ -86,7 +95,7 @@ def raw_estimates(train, calib):
         - ln_hours_per_player
         - np.log(calib["total_reviews"])
     )
-    return ln_tree, ln_b.to_numpy()
+    return ln_tree, ln_b.to_numpy(), model, tag_list, (a, b)
 
 
 def train_a_shares(conn, train):
@@ -143,6 +152,22 @@ def calibrate_loo(true_ln_k, ln_tree, ln_age, ln_b, a_share):
     return signal_a, signal_b, fused
 
 
+def interval_ratios(true_ln_k, fused, has_b):
+    """预测区间的上下倍数：区间 = 估计值 × 下倍数 ～ 估计值 × 上倍数。
+
+    倍数取自留一法的误差（真值 ÷ 融合估计）：从小到大排好，两头各去掉 10%，剩下的最小、最大。
+    有 B 的游戏多一路信息，误差小得多，所以有 B、没 B 各算各的。
+    返回 {True: (下倍数, 上倍数), False: (下倍数, 上倍数)}，键是“有没有 B”。
+    """
+    tail = (1 - INTERVAL_LEVEL) / 2
+    ratios = np.exp(true_ln_k - fused)
+    result = {}
+    for group in (True, False):
+        low, high = np.quantile(ratios[has_b == group], [tail, 1 - tail])
+        result[group] = (low, high)
+    return result
+
+
 def main():
     """读样本、校准、留一法评估，结果写进五折成绩表。"""
     conn = sqlite3.connect(DB_PATH)
@@ -156,7 +181,7 @@ def main():
         train = train[~seen]
 
         true_ln_k = calib["ln_k"].to_numpy()
-        ln_tree, ln_b = raw_estimates(train, calib)
+        ln_tree, ln_b, model, tag_list, b_line = raw_estimates(train, calib)
         # 校准用的 ln 游戏年龄，不足 30 天的按 30 天算
         ln_age = np.log(calib["game_age_years"].clip(lower=MIN_AGE_YEARS).to_numpy())
         bins = np.digitize(calib["total_reviews"], REVIEW_BIN_STARTS[1:])
@@ -205,11 +230,28 @@ def main():
 
     # 最终用的系数：用全部校准游戏拟合（留一法只用来评估）
     gamma0, beta, c = fit_a_calibration(ln_tree, ln_age, true_ln_k)
+    b_shift = np.mean(true_ln_k[has_b] - ln_b[has_b])
+    ratios = interval_ratios(true_ln_k, fused, has_b)
+
+    # 冻结：查询新游戏要用的东西存进一个文件，查询时只读它，不再训练。
+    # 树和校准系数出自同一次运行，系数是对着这棵树定的，两者配套
+    frozen = {
+        "tree": model,
+        "tag_list": tag_list,
+        "a_calibration": (gamma0, beta, c),
+        "b_line": b_line,
+        "b_shift": b_shift,
+        "a_share_by_bin": a_share_by_bin,
+        "interval_ratios": ratios,
+    }
+    FROZEN_MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
+    joblib.dump(frozen, FROZEN_MODEL_PATH)
+
     print(
         f"训练集去掉校准集里也有的 {seen.sum()} 款，剩 {len(train)} 款；校准集 {n} 款，其中有 B 的 {has_b.sum()} 款"
     )
     print(
-        f"A 的校准：γ0 = {gamma0:.3f}，β = {beta:.3f}，c = {c:.3f}；B 的平移量 {np.mean(true_ln_k[has_b] - ln_b[has_b]):+.3f}"
+        f"A 的校准：γ0 = {gamma0:.3f}，β = {beta:.3f}，c = {c:.3f}；B 的平移量 {b_shift:+.3f}"
     )
     print("全部校准游戏：")
     for variant, predicted in all_predictions.items():
@@ -223,9 +265,14 @@ def main():
         print(
             f"  {variant}：均方根误差 {result['rmse']:.3f}，±30% 命中率 {result['hit_rate']:.1%}"
         )
+    print(f"{INTERVAL_LEVEL:.0%} 预测区间（估计值的倍数）：")
+    for group, name in ((True, "有 B"), (False, "没 B")):
+        low, high = ratios[group]
+        print(f"  {name}：{low:.2f} ～ {high:.2f} 倍")
     print(
         "成绩已写入 result_cv_scores、result_cv_predictions（experiment = calibration、calibration_with_b）"
     )
+    print(f"冻结的模型已存到 {FROZEN_MODEL_PATH}")
 
 
 if __name__ == "__main__":

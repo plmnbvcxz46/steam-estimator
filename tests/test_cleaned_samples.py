@@ -1,5 +1,6 @@
 import sqlite3
 
+from crawler.appids import CREATE_QUERY_TABLE_SQL
 from crawler.sources import ars, reviews
 from pipeline import charts, games, prices, review_counts, sales_truth
 from pipeline.samples.build import build_samples
@@ -23,6 +24,8 @@ def make_conn():
     conn.execute(charts.CREATE_TABLE_SQL)
     # 销量真值表：空的，这里只测训练集的行
     conn.execute(sales_truth.CREATE_TABLE_SQL)
+    # 查询记录表：空的，同上
+    conn.execute(CREATE_QUERY_TABLE_SQL)
     return conn
 
 
