@@ -32,7 +32,7 @@ VARIANTS = {
 
 
 def load_predictions(conn):
-    """读融合的五折预测，返回每款游戏一行：真值、三种做法的预测、有没有 B。"""
+    """读融合的五折预测，返回每款游戏一行：真值、三种做法的预测、B 自己的预测、有没有 B。"""
     predictions = pd.read_sql_query(
         "SELECT sample_id, variant, true_ln_k, predicted_ln_k FROM result_cv_predictions"
         " WHERE experiment = 'fusion'",
@@ -41,13 +41,14 @@ def load_predictions(conn):
     table = predictions.pivot(index="sample_id", columns="variant", values="predicted_ln_k")
     table["true_ln_k"] = predictions.groupby("sample_id")["true_ln_k"].first()
 
-    # 信号 B 的预测只存了有 B 的游戏
-    with_b = pd.read_sql_query(
-        "SELECT sample_id FROM result_cv_predictions"
+    # 信号 B 的预测只存了有 B 的游戏，按编号对上，其余游戏是 NaN
+    signal_b = pd.read_sql_query(
+        "SELECT sample_id, predicted_ln_k FROM result_cv_predictions"
         " WHERE experiment = 'signal_b' AND variant = 'signal_b'",
         conn,
-    )["sample_id"]
-    table["has_b"] = table.index.isin(with_b)
+    ).set_index("sample_id")["predicted_ln_k"]
+    table["signal_b"] = signal_b
+    table["has_b"] = table["signal_b"].notna()
     return table
 
 
