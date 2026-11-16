@@ -1,7 +1,7 @@
 import sqlite3
 
 from crawler.sources import ars, reviews
-from pipeline import charts, games, prices, review_counts
+from pipeline import charts, games, prices, review_counts, sales_truth
 from pipeline.samples.build import build_samples
 from pipeline.samples.review_count_features import review_count_features
 
@@ -21,6 +21,8 @@ def make_conn():
     conn.execute(prices.CREATE_TABLE_SQL)
     # 每月在线小时表：这里的游戏都没被 SteamCharts 收录，总小时为空
     conn.execute(charts.CREATE_TABLE_SQL)
+    # 销量真值表：空的，这里只测训练集的行
+    conn.execute(sales_truth.CREATE_TABLE_SQL)
     return conn
 
 
