@@ -1,4 +1,7 @@
-"""所有采集模块共用的请求函数：限速、超时、重试与退避。"""
+"""所有采集模块共用的请求函数：限速、超时、重试与退避。
+
+接口返回 JSON，用 get_json / post_json；普通网页返回 HTML，用 get_html。
+"""
 
 import logging
 import threading
@@ -63,17 +66,32 @@ def _wait_for_turn(url, min_interval):
 
 def get_json(url, params=None, min_interval=1.5):
     """GET 一个返回 JSON 的接口，成功返回解析后的数据，最终失败抛 CrawlError。"""
-    return _request_json("GET", url, params, None, min_interval)
+    return _request("GET", url, params, None, min_interval, "json")
 
 
 def post_json(url, body, params=None, min_interval=1.5):
     """POST 一个返回 JSON 的接口，body 会编码成 JSON 放进请求体。
     限速、重试和 get_json 完全一样。"""
-    return _request_json("POST", url, params, body, min_interval)
+    return _request("POST", url, params, body, min_interval, "json")
 
 
-def _request_json(method, url, params, body, min_interval):
-    """GET 和 POST 共用的部分：排队限速、发请求、判断要不要重试。"""
+def get_html(url, params=None, min_interval=1.5, not_found_marker=None):
+    """GET 一个普通网页，成功返回网页的文字（HTML），最终失败抛 CrawlError。
+    限速、重试和 get_json 一样。
+
+    not_found_marker：有的网站查不到东西时不回 404，而是回 500 加一个固定页面
+    （如 SteamCharts 没收录的游戏）。传入那个页面里一定有的一段文字，
+    遇到 500 且页面里有这段文字，就当作“未收录”，不再重试。
+    """
+    # TODO 填实现：交给 _request，要的是网页文字
+    raise NotImplementedError
+
+
+def _request(method, url, params, body, min_interval, want, not_found_marker=None):
+    """所有请求共用的部分：排队限速、发请求、判断要不要重试。
+
+    want 是 "json" 或 "html"：成功后把回复解析成 JSON，还是原样返回网页文字。
+    """
     for attempt in range(MAX_RETRIES + 1):
         _wait_for_turn(url, min_interval)
 
@@ -88,10 +106,12 @@ def _request_json(method, url, params, body, min_interval):
             status = "network"
         else:
             if resp.status_code == 200:
+                # TODO 填实现：want 为 "html" 时直接返回 resp.text
                 try:
                     return resp.json()
                 except ValueError:
                     status = "bad_json"
+            # TODO 填实现：500 且页面里有 not_found_marker，抛“未收录”，不重试
             elif resp.status_code == 429 or resp.status_code >= 500:
                 status = resp.status_code
             else:
