@@ -46,20 +46,23 @@ GRID = "#e4e3df"
 BAND = "#d9d8d3"
 
 
-def load_scores(conn):
-    """读三种方法的成绩，返回 {variant: {"rmse": ..., "hit_rate": ...}}。"""
+def load_scores(conn, experiment=EXPERIMENT):
+    """读一次比较里各种做法的成绩，返回 {variant: {"rmse": ..., "hit_rate": ...}}。
+
+    默认读三种方法的比较；信号 B 的对比图传 experiment = 'signal_b'。
+    """
     rows = conn.execute(
         "SELECT variant, rmse, hit_rate FROM result_cv_scores WHERE experiment = ?",
-        (EXPERIMENT,),
+        (experiment,),
     ).fetchall()
     return {variant: {"rmse": rmse, "hit_rate": hit_rate} for variant, rmse, hit_rate in rows}
 
 
-def load_ratios(conn):
+def load_ratios(conn, experiment=EXPERIMENT):
     """读每款游戏的预测，返回 {variant: 每款的 估计 ÷ 真值}。"""
     rows = conn.execute(
         "SELECT variant, predicted_ln_k - true_ln_k FROM result_cv_predictions WHERE experiment = ?",
-        (EXPERIMENT,),
+        (experiment,),
     ).fetchall()
     errors = {}
     for variant, error in rows:
@@ -79,14 +82,14 @@ def style_axes(ax):
     ax.set_axisbelow(True)
 
 
-def draw_distribution(ax, ratios):
+def draw_distribution(ax, ratios, variants=VARIANTS):
     """每种方法一条曲线：横轴是估计 ÷ 真值，纵轴是落在这一小格里的游戏占比。"""
     # 在对数坐标上等宽分格，“猜成一半”和“猜成两倍”的格子一样宽
     edges = np.geomspace(RATIO_MIN, RATIO_MAX, N_BINS + 1)
     centers = np.sqrt(edges[:-1] * edges[1:])
 
     ax.axvspan(HIT_LOW, HIT_HIGH, color=BAND, alpha=0.6, linewidth=0, label="±30% 命中区间")
-    for variant, (name, color) in VARIANTS.items():
+    for variant, (name, color) in variants.items():
         counts, _ = np.histogram(ratios[variant], bins=edges)
         ax.plot(centers, counts / len(ratios[variant]), color=color, linewidth=2, label=name)
 
@@ -102,11 +105,11 @@ def draw_distribution(ax, ratios):
     style_axes(ax)
 
 
-def draw_bars(ax, scores, key, title, label_format):
+def draw_bars(ax, scores, key, title, label_format, variants=VARIANTS):
     """一组柱子，一种方法一根，柱顶写数值。"""
-    names = [name for name, _ in VARIANTS.values()]
-    colors = [color for _, color in VARIANTS.values()]
-    values = [scores[variant][key] for variant in VARIANTS]
+    names = [name for name, _ in variants.values()]
+    colors = [color for _, color in variants.values()]
+    values = [scores[variant][key] for variant in variants]
     bars = ax.bar(names, values, color=colors, width=0.6)
     ax.bar_label(bars, [label_format(v) for v in values], padding=3, color=INK, fontsize=10)
     ax.set_title(title, color=INK, fontsize=11)
@@ -114,22 +117,25 @@ def draw_bars(ax, scores, key, title, label_format):
     style_axes(ax)
 
 
-def draw(scores, ratios, output_path):
-    """上：比值的分布曲线；下左：命中率；下右：均方根误差。"""
+def draw(scores, ratios, output_path, variants=VARIANTS, title="三种方法的五折交叉验证成绩"):
+    """上：比值的分布曲线；下左：命中率；下右：均方根误差。
+
+    variants、title 默认是三种方法的；信号 B 的对比图换成 A、B 两种。
+    """
     plt.rcParams["font.sans-serif"] = CHINESE_FONTS
     # 负号用普通减号，中文字体里没有数学负号
     plt.rcParams["axes.unicode_minus"] = False
 
     fig = plt.figure(figsize=(9, 7.5))
     grid = fig.add_gridspec(2, 2, height_ratios=[1.6, 1])
-    draw_distribution(fig.add_subplot(grid[0, :]), ratios)
+    draw_distribution(fig.add_subplot(grid[0, :]), ratios, variants)
 
     ax_hit = fig.add_subplot(grid[1, 0])
-    draw_bars(ax_hit, scores, "hit_rate", "±30% 命中率", lambda v: f"{v:.1%}")
+    draw_bars(ax_hit, scores, "hit_rate", "±30% 命中率", lambda v: f"{v:.1%}", variants)
     ax_hit.yaxis.set_major_formatter(matplotlib.ticker.PercentFormatter(1.0, decimals=0))
-    draw_bars(fig.add_subplot(grid[1, 1]), scores, "rmse", "ln k 均方根误差", lambda v: f"{v:.3f}")
+    draw_bars(fig.add_subplot(grid[1, 1]), scores, "rmse", "ln k 均方根误差", lambda v: f"{v:.3f}", variants)
 
-    fig.suptitle("三种方法的五折交叉验证成绩", color=INK, fontsize=13)
+    fig.suptitle(title, color=INK, fontsize=13)
     fig.tight_layout()
     output_path.parent.mkdir(exist_ok=True)
     fig.savefig(output_path, dpi=150)

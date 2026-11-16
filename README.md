@@ -25,6 +25,8 @@ python -m analysis.tree_params          # 树模型参数比较，写 result_cv_
 python -m viz.tree_params               # 参数比较的曲线图（要先跑 analysis.tree_params）
 python -m analysis.feature_importance   # 特征按组重要性，写 result_cv_scores（约 1 分钟）
 python -m viz.feature_importance        # 重要性图（要先跑 analysis.feature_importance 和 analysis.signal_a）
+python -m analysis.signal_b             # 信号 B 的五折成绩，和 A 比（要先跑 analysis.signal_a）
+python -m viz.signal_b_fit              # 信号 B 的拟合图；另有 viz.signal_b_comparison（要先跑 analysis.signal_b）
 pytest                                  # 测试
 ```
 
@@ -37,4 +39,4 @@ python -m query <appid> [--cutoff 日期]  # 单款查询（规划中）
 
 ## 当前进度
 
-已完成采集和清洗的数据：商店信息、评测计数、评测抽样、价格历史、在线人数（SteamCharts）。样本表已有训练集（2018 年 11716 款），信号 A 的四类特征都已算好；五折成绩：固定倍数的均方根误差 1.018、±30% 命中率 26.1%；线性回归 0.824、36.3%；树模型 0.701、46.3%（参数已比较选定）。特征按组重要性已算出：8 组特征都有用，最重要的是游戏年龄、Steam 内购买占比、价格。信号 B 的总游玩小时已进样本表：训练集评测 10 条以上的游戏里 3722 款能算；人均小时的拟合和信号 B 的成绩还没做。模型还没全量训练和保存，校准未开始。
+已完成采集和清洗的数据：商店信息、评测计数、评测抽样、价格历史、在线人数（SteamCharts）。样本表已有训练集（2018 年 11716 款），信号 A 的四类特征都已算好；五折成绩：固定倍数的均方根误差 1.018、±30% 命中率 26.1%；线性回归 0.824、36.3%；树模型 0.701、46.3%（参数已比较选定）。特征按组重要性已算出：8 组特征都有用，最重要的是游戏年龄、Steam 内购买占比、价格。信号 B 的总游玩小时已进样本表：训练集评测 10 条以上的游戏里 3722 款能算；信号 B 的五折成绩已算出：同这 3722 款上，信号 A 0.604、53.1%，信号 B 0.578、49.4%。模型还没全量训练和保存，校准未开始。

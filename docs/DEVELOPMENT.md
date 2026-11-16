@@ -79,14 +79,14 @@ $$
 crawler/   pipeline/   analysis/   viz/   # 四个模块；各脚本入口为 python -m 模块.脚本，模块本身没有入口
   crawler/sources/                       # 一个数据源一个文件，入口为 python -m crawler.sources.<数据源>：ars、itad、review_counts、reviews、steamcharts、store_items
   pipeline/ 现有脚本                      # games、prices、review_counts、charts；样本表是一个包 pipeline/samples/，入口为 python -m pipeline.samples
-  viz/ 现有脚本                           # k_by_reviews、reviews_vs_players、method_comparison、tree_params、feature_importance
-  analysis/                              # evaluation（读训练样本、分折、算误差、存成绩）、model_inputs（样本表转模型输入）、baselines（固定倍数、线性回归两个对照）、signal_a（树模型，三种方法的五折成绩）、tree_params（参数比较）、feature_importance（特征按组重要性）
+  viz/ 现有脚本                           # k_by_reviews、reviews_vs_players、method_comparison、tree_params、feature_importance、signal_b_fit、signal_b_comparison
+  analysis/                              # evaluation（读训练样本、分折、算误差、存成绩）、model_inputs（样本表转模型输入）、baselines（固定倍数、线性回归两个对照）、signal_a（树模型，三种方法的五折成绩）、tree_params（参数比较）、feature_importance（特征按组重要性）、signal_b（信号 B 的五折成绩，和 A 在能算 B 的游戏上比）
   crawler/ 其余文件                       # 各数据源共用的采集基础设施：请求、采集日志
 common/                                  # 各模块共用的小工具：路径、日志、时间；不含业务逻辑
 query/                                   # 单款查询入口（未实现）
 tests/                                   # 采集、清洗、样本表、评估、画图的单元测试；数据泄露测试还没写
 data/                                    # steam.db、models/、logs/ 的内容不入 git（除 raw_* 外可重建）；data/source/ 的原始 CSV 入 git
-figures/                                 # 生成的图，不入 git；dataflow.html（数据流图）除外
+figures/                                 # 生成的图和 dataflow.html（数据流图），入 git；改了画图或分析代码就重画，和代码一起提交
 docs/                                    # 设计、推导、devlog
 ```
 
@@ -348,6 +348,8 @@ $$
 
 $\sigma_A$、$\sigma_B$、$\mu_B$ 都在留一法中计算：预测某款游戏时，只用其余游戏的残差。
 
+作为参考，训练集上的五折试算（`analysis.signal_b` 存的两路预测，按简单平均合并，不是上面的加权公式）：能算 B 的 3722 款，A 0.604、B 0.578、平均 0.449，±30% 命中率 53.1%、49.4%、63.0%，两路误差的相关系数 0.15；全部 9623 款里能算 B 的取平均、其余只用 A，误差从 0.700 降到 0.654，命中率从 46.3% 升到 50.2%；算不了 B 的 5901 款只有 A，误差 0.755。融合做完后用实际公式重算对照。
+
 预测区间使用的 $\sigma$ 同样取固定值：两路都可用的样本取融合结果留一法残差的标准差，只有 A 的样本取 $\sigma_A$。两路共享评测者时长、误差不独立，直接取融合结果的残差就不必单独估计两路的相关程度。区间的实际覆盖率在评估中检验，如实报告，不足时也不事后放宽：放宽多少要看全部结果才能定，放宽后再报覆盖率就成了自己证明自己。推导见 [DERIVATIONS.md](DERIVATIONS.md)“融合”一节。
 
 ### 4.4 置信标签
@@ -430,7 +432,7 @@ $$
 | 二 | 采集与导入 | 评测计数与抽样、商店信息、在线人数、历史价格的采集；近年真值表的导入。商店信息、评测计数、评测抽样、价格历史、在线人数已完成；近年真值表未开始 | 进行中 |
 | 三 | 管道 | 清洗、对齐、特征、样本划分。`cleaned_games`、`cleaned_review_counts`、`cleaned_prices`、`cleaned_charts_monthly` 已完成；样本表的训练集已完成（含信号 B 的总游玩小时），校准集和查询样本未开始 | 进行中 |
 | 四 | 信号 A | 树模型、校准、评估框架、留一法评估 | 进行中：评估框架、两个对照（固定倍数、线性回归）、树模型的五折评估、参数比较和特征按组重要性已完成 |
-| 五 | 信号 B 与融合 | 信号 B、融合、置信标签 | 进行中：在线人数采集、总游玩小时 $H$ 已完成；人均小时拟合、融合、置信标签未开始 |
+| 五 | 信号 B 与融合 | 信号 B、融合、置信标签 | 进行中：在线人数采集、总游玩小时 $H$、人均小时拟合和信号 B 的五折成绩已完成；融合、置信标签未开始 |
 | 六 | 全量拟合 | 用全部数据拟合最终模型与参数，保存后冻结 | 未开始 |
 | 七 | 可视化与查询 | 生成全部图表；单款查询入口。已有 5 张图（评测数与玩家数、按评测数分档的 $k$ 波动、三种方法对比、树模型参数比较、特征重要性），其余图和单款查询未开始 | 进行中 |
 | 八 | 收尾 | 报告、案例 | 未开始 |
