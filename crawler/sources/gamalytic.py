@@ -13,6 +13,7 @@
 入口：python -m crawler.sources.gamalytic
 """
 
+import html
 import logging
 import re
 import sqlite3
@@ -50,7 +51,21 @@ VALUES (:appid, :report_date, :title, :units_sold, :source_url, :fetched_at)
 
 def parse_units(text):
     """把 '14K'、'12.4M'、'750' 换算成整数 14000、12400000、750。看不懂就抛 ValueError。"""
-    # TODO：去掉末尾的 K / M，乘 1000 / 1000000，四舍五入成整数
+    multiplier = 1
+    if text.endswith("K"):
+        multiplier = 1_000
+        text = text[:-1]
+    elif text.endswith("M"):
+        multiplier = 1_000_000
+        text = text[:-1]
+    # float 认不出的（空串、字母）会抛 ValueError。
+    # 12.4 × 1000000 算出来是 12400000.000000002，所以四舍五入再转整数
+    return round(float(text) * multiplier)
+
+
+def cell_text(cell):
+    """一格的文字：去掉标签和前后空白，再把 &amp; 这类转义换回原字符。"""
+    return html.unescape(re.sub(r"<[^>]+>", "", cell)).strip()
 
 
 def parse_page(page):
@@ -58,10 +73,46 @@ def parse_page(page):
 
     外部网页要严格校验：找不到表、表头不对、某一行看不懂，都抛 ValueError。
     """
-    # TODO 1：找到表头是 EXPECTED_HEADER 的那张表（页面上还有 6 张小的成绩表）
-    # TODO 2：逐行取 5 格的文字和行里的链接
-    # TODO 3：appid 取自 /game/<appid>，日期 'Jul 10, 2022' 换成 '2022-07-10'，
-    #         销量用 parse_units，出处取公布销量那一格的链接，没有就是 None
+    # 1. 页面上有 7 张表，前 6 张是小的成绩汇总；表头对得上的必须正好一张
+    tables = []
+    for table in re.findall(r"<table.*?</table>", page, re.S):
+        header = [cell_text(th) for th in re.findall(r"<th.*?</th>", table, re.S)]
+        if header == EXPECTED_HEADER:
+            tables.append(table)
+    if len(tables) != 1:
+        raise ValueError(f"表头是 {EXPECTED_HEADER} 的表有 {len(tables)} 张，应为 1 张")
+
+    rows = []
+    # 2. 逐行取格子。表头那行只有 <th> 没有 <td>，找不到格子，跳过
+    for tr in re.findall(r"<tr.*?</tr>", tables[0], re.S):
+        cells = re.findall(r"<td.*?</td>", tr, re.S)
+        if not cells:
+            continue
+        if len(cells) != 5:
+            raise ValueError(f"有一行是 {len(cells)} 格，应为 5 格: {cell_text(tr)}")
+        game_cell, date_cell, units_cell = cells[0], cells[1], cells[2]
+
+        # 3. appid 取自游戏名的链接 /game/<appid>，找不到说明这一行和预期不一样
+        appid_match = re.search(r'href="/game/(\d+)"', game_cell)
+        if appid_match is None:
+            raise ValueError(f"游戏格里没有 /game/<appid> 链接: {cell_text(game_cell)}")
+
+        # 出处是公布销量那一格的链接，少数几行没有，存 None。
+        # 网页里有一条链接末尾多了个空格，strip 去掉
+        url_match = re.search(r'href="([^"]+)"', units_cell)
+        source_url = html.unescape(url_match.group(1)).strip() if url_match else None
+
+        rows.append(
+            {
+                "appid": int(appid_match.group(1)),
+                # 'Jul 10, 2022' -> '2022-07-10'；格式不对 strptime 会抛 ValueError
+                "report_date": datetime.strptime(cell_text(date_cell), "%b %d, %Y").strftime("%Y-%m-%d"),
+                "title": cell_text(game_cell),
+                "units_sold": parse_units(cell_text(units_cell)),
+                "source_url": source_url,
+            }
+        )
+    return rows
 
 
 def main():
