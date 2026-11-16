@@ -12,6 +12,7 @@ import argparse
 import logging
 import re
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
 
 from common.clock import now_utc_str
 from common.log import setup_logging
@@ -26,8 +27,9 @@ SOURCE = "steamcharts"
 PAGE_URL = "https://steamcharts.com/app/{appid}"
 # 没收录的游戏，页面是网站通用页，标题里有这一段；收录了的游戏标题是“游戏名 - Steam Charts”
 NOT_TRACKED_MARKER = "Steam Charts - Tracking What's Played"
-# 第三方小网站，没有公布限额，按早期探索版本的 1.5 秒一次，单线程慢慢采
-MIN_INTERVAL = 1.5
+# 第三方小网站，没有公布限额。实测连续 2 分钟每秒约 5 次、短时间约 7 次都没被限流（devlog 2026-11-16）；
+# 留出余量取每秒 4 次，所有线程合计。一次请求本身约 0.5 秒，要 --workers 4 左右才跑得满
+MIN_INTERVAL = 0.25
 
 # 网页上的月份是英文全称，如 "June 2018"，换成 "2018-06"
 MONTHS = {
@@ -111,46 +113,94 @@ def save_months(conn, appid, rows):
         crawl_log.record(conn, SOURCE, appid, 200 if rows else crawl_log.EMPTY)
 
 
-def crawl_steamcharts(conn, appids):
-    """逐款取网页、解析、入库。已有定论的跳过，中断后重跑同一条命令即可续上。"""
+def fetch_one(appid):
+    """取一款的网页并解析，返回 {"appid", "status", "rows"}，失败原因写在 status 里，不抛异常。
+
+    在线程池里运行，只联网、不碰数据库；只有 status 为 200 时 rows 才有内容。
+    """
+    result = {"appid": appid, "status": 200, "rows": []}
+    try:
+        page = get_html(
+            PAGE_URL.format(appid=appid),
+            min_interval=MIN_INTERVAL,
+            not_found_marker=NOT_TRACKED_MARKER,
+        )
+        result["rows"] = parse_months(appid, page)
+    except CrawlError as err:
+        if err.status in (crawl_log.NOT_FOUND, 404):
+            # 没收录有两种回法：500 加通用页（get_html 已认出），或 404（连这个 appid 都不认识，
+            # 实测重试仍是 404）。约七成游戏都没收录，是正常结局，不写警告，只在进度里计数
+            result["status"] = crawl_log.NOT_FOUND
+        else:
+            logger.warning("appid=%d 请求失败: %s", appid, err)
+            result["status"] = err.status
+    except (KeyError, ValueError) as err:
+        # 页面看不懂（找不到表、格数不对、月份认不出）
+        logger.warning("appid=%d 解析失败: %r", appid, err)
+        result["status"] = crawl_log.PARSE_ERROR
+    return result
+
+
+def crawl_steamcharts(conn, appids, workers=1):
+    """逐款取网页、解析、入库。已有定论的跳过，中断后重跑同一条命令即可续上。
+
+    几个线程同时发请求（fetch_one），写库只由主线程做：SQLite 的连接不能在线程之间共用。
+    """
     ensure_tables(conn)
 
     done = crawl_log.done_keys(conn, SOURCE)
     todo = [appid for appid in appids if str(appid) not in done]
-    logger.info("SteamCharts：共 %d 款，已完成 %d 款，本次要采 %d 款", len(appids), len(appids) - len(todo), len(todo))
+    logger.info(
+        "SteamCharts：共 %d 款，已完成 %d 款，本次要采 %d 款，%d 路并行",
+        len(appids), len(appids) - len(todo), len(todo), workers,
+    )
 
-    for index, appid in enumerate(todo, start=1):
-        try:
-            page = get_html(
-                PAGE_URL.format(appid=appid),
-                min_interval=MIN_INTERVAL,
-                not_found_marker=NOT_TRACKED_MARKER,
-            )
-            rows = parse_months(appid, page)
-            save_months(conn, appid, rows)
-        except CrawlError as err:
-            # 包括“未收录”：get_html 已经把状态定好，原样记下
-            logger.warning("appid=%d 请求失败: %s", appid, err)
-            with conn:
-                crawl_log.record(conn, SOURCE, appid, err.status)
-            continue
-        except (KeyError, ValueError, sqlite3.IntegrityError) as err:
-            # 页面看不懂、同一个月出现两次：记下原因，跳过这款，不让整次采集崩掉
-            logger.warning("appid=%d 解析失败: %r", appid, err)
-            with conn:
-                crawl_log.record(conn, SOURCE, appid, crawl_log.PARSE_ERROR)
-            continue
+    # 每种结局各有几款，进度里一起报：未收录不再逐条写日志，靠这里看个总数
+    counts = {"收录": 0, "未收录": 0, "失败": 0}
+    pool = ThreadPoolExecutor(max_workers=workers)
+    try:
+        # 对 todo 里每一款调用 fetch_one，由池里的线程去做；结果按 todo 的顺序交回来
+        for index, result in enumerate(pool.map(fetch_one, todo), start=1):
+            appid = result["appid"]
+            if result["status"] == crawl_log.NOT_FOUND:
+                counts["未收录"] += 1
+                with conn:
+                    crawl_log.record(conn, SOURCE, appid, crawl_log.NOT_FOUND)
+            elif result["status"] != 200:
+                counts["失败"] += 1
+                with conn:
+                    crawl_log.record(conn, SOURCE, appid, result["status"])
+            else:
+                try:
+                    save_months(conn, appid, result["rows"])
+                    counts["收录"] += 1
+                except sqlite3.IntegrityError as err:
+                    # 同一个月出现两次：整款没有写入（事务回滚），记下原因，下次重试
+                    logger.warning("appid=%d 写入失败: %r", appid, err)
+                    counts["失败"] += 1
+                    with conn:
+                        crawl_log.record(conn, SOURCE, appid, crawl_log.PARSE_ERROR)
 
-        if index % 100 == 0 or index == len(todo):
-            logger.info("SteamCharts 进度 %d/%d", index, len(todo))
+            if index % 100 == 0 or index == len(todo):
+                logger.info(
+                    "SteamCharts 进度 %d/%d：收录 %d，未收录 %d，失败 %d",
+                    index, len(todo), counts["收录"], counts["未收录"], counts["失败"],
+                )
+    finally:
+        # 正常结束或按 Ctrl+C 都会走到这里。cancel_futures=True 把还没开始的任务全部取消，
+        # 否则线程池会坚持把剩下的请求发完才肯退出
+        pool.shutdown(wait=True, cancel_futures=True)
 
 
 def main():
-    """命令行入口：python -m crawler.sources.steamcharts [数量]，不写数量就采全部"""
+    """命令行入口：python -m crawler.sources.steamcharts [数量] [--workers 路数]，不写数量就采全部"""
     parser = argparse.ArgumentParser(description="采集 SteamCharts 月度在线人数")
     parser.add_argument(
         "limit", type=int, nargs="?", default=None,
         help="从 Ars 表里取多少个 appid 来采；不写则采全部",
+    )
+    parser.add_argument(
+        "--workers", type=int, default=1, help="同时发请求的线程数，默认 1；全量建议 4"
     )
     args = parser.parse_args()
 
@@ -159,7 +209,7 @@ def main():
     conn = sqlite3.connect(DB_PATH)
     try:
         appids = pick_appids(conn, args.limit)
-        crawl_steamcharts(conn, appids)
+        crawl_steamcharts(conn, appids, args.workers)
     finally:
         conn.close()
 

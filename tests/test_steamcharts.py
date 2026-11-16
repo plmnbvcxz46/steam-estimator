@@ -22,14 +22,17 @@ def test_parse_skips_last_30_days():
 # ---- 逐款采集：用假的 get_html 代替联网，数据库用内存临时库 ----
 
 
-def fake_get_html_factory(pages):
-    """返回一个假的 get_html：pages 里有的 appid 返回那张网页，没有的当作没收录。
+def fake_get_html_factory(pages, unknown=()):
+    """返回一个假的 get_html：pages 里有的 appid 返回那张网页；unknown 里的回 404
+    （SteamCharts 连这个 appid 都不认识）；其余当作没收录（500 通用页）。
     calls 记下依次请求了哪些 appid。"""
     calls = []
 
     def fake_get_html(url, min_interval=None, not_found_marker=None):
         appid = int(url.rsplit("/", 1)[1])
         calls.append(appid)
+        if appid in unknown:
+            raise CrawlError(404, f"请求被拒绝 404: {url}")
         if appid not in pages:
             raise CrawlError("未收录", f"未收录: {url}")
         return pages[appid]
@@ -44,14 +47,16 @@ def log_statuses(conn):
 
 def test_crawl_writes_rows_and_resumes(monkeypatch):
     conn = sqlite3.connect(":memory:")
-    fake = fake_get_html_factory({220: PAGE_220})
+    # 774531 是真实遇到的：商店里是正常游戏，SteamCharts 却回 404，重试仍是 404
+    fake = fake_get_html_factory({220: PAGE_220}, unknown={774531})
     monkeypatch.setattr(steamcharts, "get_html", fake)
 
-    steamcharts.crawl_steamcharts(conn, [220, 999999])
-    steamcharts.crawl_steamcharts(conn, [220, 999999, 440])  # 重跑：前两款已有定论，只该请求 440
+    steamcharts.crawl_steamcharts(conn, [220, 999999, 774531])
+    # 重跑：前三款已有定论（404 也算未收录），只该请求 440
+    steamcharts.crawl_steamcharts(conn, [220, 999999, 774531, 440])
 
-    assert fake.calls == [220, 999999, 440]
-    assert log_statuses(conn) == {"220": "200", "999999": "未收录", "440": "未收录"}
+    assert fake.calls == [220, 999999, 774531, 440]
+    assert log_statuses(conn) == {"220": "200", "999999": "未收录", "774531": "未收录", "440": "未收录"}
     count = conn.execute("SELECT COUNT(*) FROM raw_charts_monthly WHERE appid = 220").fetchone()[0]
     assert count == 3
 
