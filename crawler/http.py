@@ -11,6 +11,8 @@ from urllib.parse import urlparse
 import requests
 from requests.adapters import HTTPAdapter
 
+from crawler.crawl_log import NOT_FOUND
+
 logger = logging.getLogger(__name__)
 
 TIMEOUT = 15  # 单次请求最多等多少秒
@@ -33,7 +35,7 @@ _session.mount("https://", HTTPAdapter(pool_maxsize=POOL_SIZE))
 
 class CrawlError(Exception):
     """请求最终失败。status 是 HTTP 状态码，或 'timeout' / 'network' / 'bad_json'，
-    调用者把它记进 raw_crawl_log。"""
+    或“未收录”（get_html 认出了网站的“没有这一项”页面），调用者把它记进 raw_crawl_log。"""
 
     def __init__(self, status, message):
         super().__init__(message)
@@ -83,8 +85,7 @@ def get_html(url, params=None, min_interval=1.5, not_found_marker=None):
     （如 SteamCharts 没收录的游戏）。传入那个页面里一定有的一段文字，
     遇到 500 且页面里有这段文字，就当作“未收录”，不再重试。
     """
-    # TODO 填实现：交给 _request，要的是网页文字
-    raise NotImplementedError
+    return _request("GET", url, params, None, min_interval, "html", not_found_marker)
 
 
 def _request(method, url, params, body, min_interval, want, not_found_marker=None):
@@ -106,12 +107,19 @@ def _request(method, url, params, body, min_interval, want, not_found_marker=Non
             status = "network"
         else:
             if resp.status_code == 200:
-                # TODO 填实现：want 为 "html" 时直接返回 resp.text
+                if want == "html":
+                    return resp.text
                 try:
                     return resp.json()
                 except ValueError:
                     status = "bad_json"
-            # TODO 填实现：500 且页面里有 not_found_marker，抛“未收录”，不重试
+            elif (
+                resp.status_code == 500
+                and not_found_marker is not None
+                and not_found_marker in resp.text
+            ):
+                # 网站用 500 表示“没有这一项”，重试多少次结果都一样
+                raise CrawlError(NOT_FOUND, f"未收录: {url}")
             elif resp.status_code == 429 or resp.status_code >= 500:
                 status = resp.status_code
             else:
