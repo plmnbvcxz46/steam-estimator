@@ -86,7 +86,7 @@ common/                                  # 各模块共用的小工具：路径�
 query/                                   # 单款查询入口（未实现）
 tests/                                   # 采集、清洗、样本表、评估、画图的单元测试；数据泄露测试还没写
 data/                                    # steam.db、models/、logs/ 的内容不入 git（除 raw_* 外可重建）；data/source/ 的原始 CSV 入 git
-figures/                                 # 生成的图，不入 git；dataflow.html（数据流图）除外
+figures/                                 # 生成的图和 dataflow.html（数据流图），入 git；改了画图或分析代码就重画，和代码一起提交
 docs/                                    # 设计、推导、devlog
 ```
 

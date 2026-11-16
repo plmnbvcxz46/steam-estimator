@@ -19,10 +19,6 @@ data/models/
 data/logs/*
 !data/logs/.gitkeep
 
-# 生成的图
-figures/*
-!figures/dataflow.html
-
 # 编辑器 / 系统
 .vscode/
 .idea/
