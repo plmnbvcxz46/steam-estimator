@@ -12,6 +12,8 @@ A 的预测直接读五折预测表里树模型那一份，所以要先跑 pytho
 
 import numpy as np
 
+from analysis.evaluation import N_FOLDS
+
 
 def fit_line(x, y):
     """最小二乘拟合一条直线 y = a + b × x，返回 (a, b)。
@@ -31,7 +33,24 @@ def signal_b_cv(samples, folds):
     samples 只含能算出 H 的游戏；folds 是这些游戏各自的折号。
     每折用另外四折拟合 a、b，再给这一折估玩家数，换成 ln k。
     """
-    raise NotImplementedError
+    total_hours = samples["charts_total_hours"].to_numpy()
+    ln_t = np.log(samples["playtime_median_hrs"].to_numpy())
+    # 真实的人均小时 h = H ÷ 真实玩家数。用到了答案，只当拟合的 y，估玩家数时不用
+    ln_h = np.log(total_hours / samples["truth_value"].to_numpy())
+    ln_reviews = np.log(samples["total_reviews"].to_numpy())
+
+    predicted = np.empty(len(samples))
+    for fold in range(N_FOLDS):
+        is_test = folds == fold
+        # 只用另外四折求 a、b，这一折的答案没参与
+        a, b = fit_line(ln_t[~is_test], ln_h[~is_test])
+        # 推算的 ln h 只用到评测者时长 t
+        guessed_ln_h = a + b * ln_t[is_test]
+        # 玩家数 = H ÷ h，取对数后除法变减法
+        ln_players = np.log(total_hours[is_test]) - guessed_ln_h
+        # k = 玩家数 ÷ 评测数，换成 ln k 才能和 A 用同一种打分
+        predicted[is_test] = ln_players - ln_reviews[is_test]
+    return predicted
 
 
 def main():
