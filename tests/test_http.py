@@ -5,9 +5,10 @@ from crawler import http
 
 
 class FakeResponse:
-    def __init__(self, status_code, data=None):
+    def __init__(self, status_code, data=None, text=""):
         self.status_code = status_code
         self._data = data
+        self.text = text  # 网页文字，get_html 用
 
     def json(self):
         return self._data
@@ -68,6 +69,35 @@ def test_gives_up_after_max_retries(monkeypatch):
         http.get_json("https://example.com/a")
     assert err.value.status == 500
     assert len(fake_request.calls) == http.MAX_RETRIES + 1
+
+
+# SteamCharts 没收录的游戏回 500，页面是网站的通用页，标题是这一段
+NOT_TRACKED_TITLE = "Steam Charts - Tracking What's Played"
+
+
+def test_html_not_found_page_is_not_retried(monkeypatch):
+    # 500 且页面是“没收录”页：只请求一次，状态记为“未收录”
+    page = f"<html><title>{NOT_TRACKED_TITLE}</title></html>"
+    fake_request = fake_request_factory([FakeResponse(500, text=page)])
+    monkeypatch.setattr(http._session, "request", fake_request)
+
+    with pytest.raises(http.CrawlError) as err:
+        http.get_html("https://example.com/app/1", not_found_marker=NOT_TRACKED_TITLE)
+    assert err.value.status == "未收录"
+    assert len(fake_request.calls) == 1
+
+
+def test_html_other_500_is_retried(monkeypatch):
+    # 500 但页面不是“没收录”页（网站真出错了）：照常重试，成功后返回网页文字
+    fake_request = fake_request_factory([
+        FakeResponse(500, text="<html>Internal Server Error</html>"),
+        FakeResponse(200, text="<html>月份表格</html>"),
+    ])
+    monkeypatch.setattr(http._session, "request", fake_request)
+
+    page = http.get_html("https://example.com/app/1", not_found_marker=NOT_TRACKED_TITLE)
+    assert page == "<html>月份表格</html>"
+    assert len(fake_request.calls) == 2
 
 
 def test_post_json_sends_body(monkeypatch):
