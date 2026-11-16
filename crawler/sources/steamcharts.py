@@ -99,8 +99,16 @@ def save_months(conn, appid, rows):
 
     重采同一款时整段换成新的：先删旧的再写。表里一个整月都没有，记“空结果”。
     """
-    # TODO 填实现：补 fetched_at，删旧、写新、记日志
-    raise NotImplementedError
+    fetched_at = now_utc_str()
+    for row in rows:
+        row["fetched_at"] = fetched_at
+    # with conn：里面几句要么全部生效，要么一句都不生效。
+    # 删了旧的还没写完新的就断电，旧数据也会回来，不会只剩半款
+    with conn:
+        conn.execute("DELETE FROM raw_charts_monthly WHERE appid = ?", (appid,))
+        # 普通 INSERT：同一个月出现两次会因主键冲突报错，不会悄悄只留一条
+        conn.executemany(INSERT_SQL, rows)
+        crawl_log.record(conn, SOURCE, appid, 200 if rows else crawl_log.EMPTY)
 
 
 def crawl_steamcharts(conn, appids):
