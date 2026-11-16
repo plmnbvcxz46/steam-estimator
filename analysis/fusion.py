@@ -68,7 +68,58 @@ def fusion_cv(true_ln_k, ln_a, ln_b, total_reviews, folds):
 def main():
     """读两路已存的五折预测，在全部训练游戏上比较只用 A、简单平均、按档加权，
     结果写进五折成绩表（experiment = fusion）。"""
-    raise NotImplementedError
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        samples = load_train_samples(conn)
+        # 和 signal_a、signal_b 同样的分折：每款游戏在三处是同一折当考题
+        folds = make_folds(len(samples))
+
+        # A：树模型的五折预测，全部游戏都有
+        tree_predictions = pd.read_sql_query(
+            "SELECT sample_id, predicted_ln_k FROM result_cv_predictions"
+            " WHERE experiment = 'methods' AND variant = 'tree'",
+            conn,
+        ).set_index("sample_id")["predicted_ln_k"]
+        ln_a = tree_predictions.loc[samples["sample_id"]].to_numpy()
+
+        # B：信号 B 的五折预测，只有能算 H 的游戏有；reindex 让其余游戏填成 NaN
+        b_predictions = pd.read_sql_query(
+            "SELECT sample_id, predicted_ln_k FROM result_cv_predictions"
+            " WHERE experiment = 'signal_b' AND variant = 'signal_b'",
+            conn,
+        ).set_index("sample_id")["predicted_ln_k"]
+        ln_b = b_predictions.reindex(samples["sample_id"]).to_numpy()
+
+        # 简单平均作对照：有 B 取两路的平均，没 B 取 A
+        has_b = ~np.isnan(ln_b)
+        simple_mean = np.where(has_b, (ln_a + ln_b) / 2, ln_a)
+
+        fused = fusion_cv(samples["ln_k"], ln_a, ln_b, samples["total_reviews"].to_numpy(), folds)
+
+        predictions = {"signal_a": ln_a, "simple_mean": simple_mean, "binned_weighted": fused}
+        # 画图要用每款的预测，所以连预测一起存
+        save_experiment(
+            conn,
+            "fusion",
+            samples["sample_id"],
+            samples["ln_k"],
+            predictions,
+            save_predictions=True,
+        )
+    finally:
+        conn.close()
+
+    # 成绩表只存全部游戏的成绩；有 B 的那部分在这里另外打印，写文档用
+    true_ln_k = samples["ln_k"].to_numpy()
+    print(f"训练样本 {len(samples)} 款，其中有 B 的 {has_b.sum()} 款")
+    for variant, predicted in predictions.items():
+        overall = score(true_ln_k, predicted)
+        with_b = score(true_ln_k[has_b], predicted[has_b])
+        print(
+            f"{variant}：全部 {overall['rmse']:.3f} / {overall['hit_rate']:.1%}，"
+            f"有 B 的 {with_b['rmse']:.3f} / {with_b['hit_rate']:.1%}"
+        )
+    print("成绩已写入 result_cv_scores、result_cv_predictions（experiment = fusion）")
 
 
 if __name__ == "__main__":
