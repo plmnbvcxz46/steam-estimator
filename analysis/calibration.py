@@ -21,7 +21,12 @@ import numpy as np
 import pandas as pd
 from sklearn.ensemble import HistGradientBoostingRegressor
 
-from analysis.evaluation import DEFAULT_MIN_REVIEWS, load_train_samples, save_experiment, score
+from analysis.evaluation import (
+    DEFAULT_MIN_REVIEWS,
+    load_train_samples,
+    save_experiment,
+    score,
+)
 from analysis.fusion import REVIEW_BIN_STARTS
 from analysis.model_inputs import build_inputs, choose_tags
 from analysis.signal_a import TREE_PARAMS
@@ -67,7 +72,11 @@ def raw_estimates(train, calib):
     )
     # 玩家数 = 总小时 ÷ 人均小时，再除以评测数得到 k；没有总小时的游戏算出来是 NaN
     ln_hours_per_player = a + b * np.log(calib["playtime_median_hrs"])
-    ln_b = np.log(calib["charts_total_hours"]) - ln_hours_per_player - np.log(calib["total_reviews"])
+    ln_b = (
+        np.log(calib["charts_total_hours"])
+        - ln_hours_per_player
+        - np.log(calib["total_reviews"])
+    )
     return ln_tree, ln_b.to_numpy()
 
 
@@ -81,7 +90,9 @@ def train_a_shares(conn, train):
         " WHERE experiment = 'signal_b'",
         conn,
     ).merge(train[["sample_id", "total_reviews"]], on="sample_id")
-    predictions["bin"] = np.digitize(predictions["total_reviews"], REVIEW_BIN_STARTS[1:])
+    predictions["bin"] = np.digitize(
+        predictions["total_reviews"], REVIEW_BIN_STARTS[1:]
+    )
     # 每档、每路的误差标准差 σ；权重 = 1 ÷ σ²，A 的占比 = A 的权重 ÷ 两路权重之和
     sigma = predictions.groupby(["bin", "variant"])["error"].std().unstack()
     weight_a = 1 / sigma["signal_a"] ** 2
@@ -130,15 +141,29 @@ def main():
         true_ln_k = calib["ln_k"].to_numpy()
         ln_tree, ln_b = raw_estimates(train, calib)
         bins = np.digitize(calib["total_reviews"], REVIEW_BIN_STARTS[1:])
-        signal_a, signal_b, fused = calibrate_loo(true_ln_k, ln_tree, ln_b, a_share_by_bin[bins])
+        signal_a, signal_b, fused = calibrate_loo(
+            true_ln_k, ln_tree, ln_b, a_share_by_bin[bins]
+        )
 
         # 对照：固定倍数，每款都猜其余游戏 ln k 的平均
         n = len(calib)
         fixed = np.array([true_ln_k[np.arange(n) != i].mean() for i in range(n)])
 
         # 全部校准游戏：对照、校准前、校准后的 A、融合
-        all_predictions = {"fixed": fixed, "tree_raw": ln_tree, "signal_a": signal_a, "fused": fused}
-        save_experiment(conn, "calibration", calib["sample_id"], true_ln_k, all_predictions, save_predictions=True)
+        all_predictions = {
+            "fixed": fixed,
+            "tree_raw": ln_tree,
+            "signal_a": signal_a,
+            "fused": fused,
+        }
+        save_experiment(
+            conn,
+            "calibration",
+            calib["sample_id"],
+            true_ln_k,
+            all_predictions,
+            save_predictions=True,
+        )
 
         # 两路都有的游戏：A、校准前后的 B、融合
         has_b = ~np.isnan(ln_b)
@@ -161,17 +186,27 @@ def main():
 
     # 最终用的系数：用全部校准游戏拟合（留一法只用来评估）
     gamma0, beta = fit_line(ln_tree, true_ln_k)
-    print(f"训练集去掉校准集里也有的 {seen.sum()} 款，剩 {len(train)} 款；校准集 {n} 款，其中有 B 的 {has_b.sum()} 款")
-    print(f"A 的校准直线：γ0 = {gamma0:.3f}，β = {beta:.3f}；B 的平移量 {np.mean(true_ln_k[has_b] - ln_b[has_b]):+.3f}")
+    print(
+        f"训练集去掉校准集里也有的 {seen.sum()} 款，剩 {len(train)} 款；校准集 {n} 款，其中有 B 的 {has_b.sum()} 款"
+    )
+    print(
+        f"A 的校准直线：γ0 = {gamma0:.3f}，β = {beta:.3f}；B 的平移量 {np.mean(true_ln_k[has_b] - ln_b[has_b]):+.3f}"
+    )
     print("全部校准游戏：")
     for variant, predicted in all_predictions.items():
         result = score(true_ln_k, predicted)
-        print(f"  {variant}：均方根误差 {result['rmse']:.3f}，±30% 命中率 {result['hit_rate']:.1%}")
+        print(
+            f"  {variant}：均方根误差 {result['rmse']:.3f}，±30% 命中率 {result['hit_rate']:.1%}"
+        )
     print("两路都有的游戏：")
     for variant, predicted in with_b_predictions.items():
         result = score(true_ln_k[has_b], predicted)
-        print(f"  {variant}：均方根误差 {result['rmse']:.3f}，±30% 命中率 {result['hit_rate']:.1%}")
-    print("成绩已写入 result_cv_scores、result_cv_predictions（experiment = calibration、calibration_with_b）")
+        print(
+            f"  {variant}：均方根误差 {result['rmse']:.3f}，±30% 命中率 {result['hit_rate']:.1%}"
+        )
+    print(
+        "成绩已写入 result_cv_scores、result_cv_predictions（experiment = calibration、calibration_with_b）"
+    )
 
 
 if __name__ == "__main__":
