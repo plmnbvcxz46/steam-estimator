@@ -10,9 +10,19 @@ A 的预测直接读五折预测表里树模型那一份，所以要先跑 pytho
 入口：python -m analysis.signal_b
 """
 
-import numpy as np
+import sqlite3
 
-from analysis.evaluation import N_FOLDS
+import numpy as np
+import pandas as pd
+
+from analysis.evaluation import (
+    N_FOLDS,
+    load_train_samples,
+    make_folds,
+    save_experiment,
+    score,
+)
+from common.paths import DB_PATH
 
 
 def fit_line(x, y):
@@ -54,8 +64,46 @@ def signal_b_cv(samples, folds):
 
 
 def main():
-    """读训练样本，比较 A、B 和两者平均，结果写进五折成绩表（experiment = signal_b）。"""
-    raise NotImplementedError
+    """读训练样本，在能算 B 的游戏上比较 A、B，结果写进五折成绩表（experiment = signal_b）。"""
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        samples = load_train_samples(conn)
+        # 先给全部训练游戏分折，再挑能算 H 的：每款游戏在 A 和 B 里是同一折当考题
+        folds = make_folds(len(samples))
+        has_hours = samples["charts_total_hours"].notna().to_numpy()
+        subset = samples[has_hours]
+        subset_folds = folds[has_hours]
+
+        # A 的五折预测在跑 signal_a 时已经存好，按游戏编号取出这一批
+        tree_predictions = pd.read_sql_query(
+            "SELECT sample_id, predicted_ln_k FROM result_cv_predictions"
+            " WHERE experiment = 'methods' AND variant = 'tree'",
+            conn,
+        ).set_index("sample_id")["predicted_ln_k"]
+        signal_a = tree_predictions.loc[subset["sample_id"]].to_numpy()
+
+        signal_b = signal_b_cv(subset, subset_folds)
+        # 两路怎么合起来留给融合，这里只比各自的成绩
+        predictions = {"signal_a": signal_a, "signal_b": signal_b}
+        # 画图要用每款的预测（散点图、误差对比），所以连预测一起存
+        save_experiment(
+            conn,
+            "signal_b",
+            subset["sample_id"],
+            subset["ln_k"],
+            predictions,
+            save_predictions=True,
+        )
+    finally:
+        conn.close()
+
+    print(f"训练样本 {len(samples)} 款，能算总小时的 {len(subset)} 款")
+    for variant, predicted in predictions.items():
+        result = score(subset["ln_k"], predicted)
+        print(
+            f"{variant}：均方根误差 {result['rmse']:.3f}，±30% 命中率 {result['hit_rate']:.1%}"
+        )
+    print("成绩已写入 result_cv_scores、result_cv_predictions（experiment = signal_b）")
 
 
 if __name__ == "__main__":
