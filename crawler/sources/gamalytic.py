@@ -118,9 +118,26 @@ def parse_page(page):
 def main():
     """命令行入口：请求网页、解析，整表替换写进 raw_truth_gamalytic。"""
     setup_logging("gamalytic.log")
-    # TODO 1：get_html 取网页（自带限速和重试，最终失败会抛 CrawlError，直接让它报错）
-    # TODO 2：parse_page 解析，每行补上 fetched_at
-    # TODO 3：一个事务里先删旧表内容再写新的，出错整个回滚，库里不留半张表
+    # 1. 取网页。get_html 自带限速和重试，最终失败会抛 CrawlError：只有一页，失败了就直接报错
+    page = get_html(PAGE_URL)
+
+    # 2. 解析，每行补上采集时间
+    rows = parse_page(page)
+    fetched_at = now_utc_str()
+    for row in rows:
+        row["fetched_at"] = fetched_at
+
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        # 3. 整表替换：先删旧的再写新的。with conn 里全部成功才提交，
+        #    出错（如同一款同一天出现两次，主键冲突）就整个回滚，库里留着旧表，不会只剩半张
+        with conn:
+            conn.execute(CREATE_TABLE_SQL)
+            conn.execute("DELETE FROM raw_truth_gamalytic")
+            conn.executemany(INSERT_SQL, rows)
+    finally:
+        conn.close()
+    logger.info("raw_truth_gamalytic 写入 %d 行，%d 款游戏", len(rows), len({row["appid"] for row in rows}))
 
 
 if __name__ == "__main__":
