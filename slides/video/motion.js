@@ -97,10 +97,11 @@ function drawSegs(ctx, segs, x, y, halo = false) {
       ctx.strokeStyle = COLOR.bgTop;
       ctx.lineWidth = s.size * 0.28;
       ctx.lineJoin = "round";
-      ctx.strokeText(s.text, x, y);
+      ctx.strokeText(s.text, x, y + (s.dy || 0));
     }
     ctx.fillStyle = s.color;
-    ctx.fillText(s.text, x, y);
+    // dy：这一块往下挪多少，写下标用
+    ctx.fillText(s.text, x, y + (s.dy || 0));
     x += ctx.measureText(s.text).width + (s.gap || 0);
   }
 }
