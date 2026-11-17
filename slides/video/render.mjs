@@ -26,8 +26,8 @@ const FPS = 60;
 const RATE = 4.2;  // 每秒念几个“字”，约每分钟 250 字
 
 // 每镜在旁白前后留的时间（秒），给画面动作让出空间。没写的用默认值
-const LEAD = { default: 0.35, 2: 1.1, 4: 0.7, 5: 0.8, 6: 0.5, 7: 0.6 };   // 开口前
-const EXTRA = { default: 0.35, 1: 1.6, 5: 0.6, 6: 1.4, 7: 1.0, 8: 0.6, 9: 1.6 };  // 念完后
+const LEAD = { default: 0.35, 2: 1.1, 4: 0.7, 5: 0.8, 6: 0.5, 7: 0.6, 10: 1.0 };   // 开口前
+const EXTRA = { default: 0.35, 1: 1.6, 5: 0.6, 6: 1.4, 7: 1.0, 8: 0.6, 9: 1.6, 10: 1.0, 12: 1.6 };  // 念完后
 
 // 每个字念起来占多少“字”的时间：汉字算 1；一串英文字母按一个词算；一串数字按位数算；标点是停顿
 function speechWeights(text) {
@@ -192,7 +192,11 @@ if (evalIndex > 0) await page.evaluate(process.argv[evalIndex + 1]);
 
 if (process.argv.includes("--beats")) {
   // 打印每个动作的时刻（秒），抽帧检查时对准用
-  const beats = await page.evaluate(() => ({ ...B, ...(typeof B2 === "undefined" ? {} : B2) }));
+  // 每段的动作时刻表叫 B、B2、B3……，有几段就合几段
+  // 顶层的 let 不挂在 window 上，只能按名字 eval 取，没有这一段就跳过
+  const beats = await page.evaluate(() => Object.assign({}, B, ...[2, 3, 4, 5, 6, 7].map((n) => {
+    try { return eval(`B${n}`); } catch { return {}; }
+  })));
   // 有的动作每种方法一个时刻，是个数组
   const show = (t) => (Array.isArray(t) ? t.map(show).join("  ") : Number.isFinite(t) ? t.toFixed(2) : "∞");
   for (const [name, t] of Object.entries(beats)) console.log(name.padEnd(10), show(t));

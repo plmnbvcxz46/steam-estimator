@@ -9,10 +9,14 @@ import json
 import sqlite3
 import sys
 
+import joblib
 import numpy as np
+from sklearn.ensemble import HistGradientBoostingRegressor
 
-from analysis.evaluation import HIT_HIGH, HIT_LOW
-from common.paths import DB_PATH
+from analysis.evaluation import HIT_HIGH, HIT_LOW, N_FOLDS, load_train_samples, make_folds
+from analysis.model_inputs import build_inputs, choose_tags
+from analysis.signal_a import TREE_PARAMS
+from common.paths import DB_PATH, PROJECT_ROOT
 from viz.k_by_reviews import summarize_bins
 from viz.reviews_vs_players import fit_fixed_multiplier, load_points
 
@@ -79,6 +83,74 @@ def method_results(conn, points):
     return hits, methods
 
 
+# 树模型的冻结文件：镜 10 画的那棵树就是它的第 1 棵
+FROZEN_PATH = PROJECT_ROOT / "data" / "models" / "frozen.joblib"
+# 镜 10 的曲线：每加几棵树记一次估对比例
+CURVE_STEP = 5
+
+
+def first_tree():
+    """冻结模型第 1 棵树的根和下一层：每个分叉按哪一列、在哪里切、有多少款游戏。"""
+    model = joblib.load(FROZEN_PATH)["tree"]
+    nodes = model._predictors[0][0].nodes  # sklearn 没有公开取树结构的接口，只能读这个内部属性
+    names = model.feature_names_in_
+
+    def split(index):
+        node = nodes[index]
+        return {"feature": str(names[node["feature_idx"]]), "threshold": float(node["num_threshold"]),
+                "count": int(node["count"]), "left": int(node["left"]), "right": int(node["right"])}
+
+    root = split(0)
+    return {"root": root, "left": split(root["left"]), "right": split(root["right"])}
+
+
+def staged_hit_rate(conn):
+    """镜 10 的曲线：五折交叉验证里，树一棵棵加上去，估对比例怎么涨。返回曲线和模型的输入列数（镜 11 要用）。
+
+    和 analysis.signal_a 同样的样本、分折和参数，只是每加一棵树就记一次预测。
+    0 棵树时每款都估成训练集的平均 ln k，也就是固定 k。
+    """
+    samples = load_train_samples(conn)
+    folds = make_folds(len(samples))
+    ln_k = samples["ln_k"].to_numpy()
+    inputs = build_inputs(samples, choose_tags(samples["tags"]))
+    staged = np.zeros((TREE_PARAMS["max_iter"] + 1, len(ln_k)))
+    for fold in range(N_FOLDS):
+        is_test = folds == fold
+        model = HistGradientBoostingRegressor(**TREE_PARAMS).fit(inputs[~is_test], ln_k[~is_test])
+        staged[0, is_test] = ln_k[~is_test].mean()
+        for n_trees, predicted in enumerate(model.staged_predict(inputs[is_test]), start=1):
+            staged[n_trees, is_test] = predicted
+    ratio = np.exp(staged - ln_k)
+    hit = ((ratio >= HIT_LOW) & (ratio <= HIT_HIGH)).mean(axis=1)
+    curve = [[n, float(hit[n])] for n in range(0, len(hit), CURVE_STEP)]
+    return curve, inputs.shape[1]
+
+
+def off_by_three(conn):
+    """树模型五折预测里，估计和真值差 3 倍以上的游戏有多少款。"""
+    rows = conn.execute(
+        "SELECT predicted_ln_k - true_ln_k FROM result_cv_predictions"
+        " WHERE experiment = 'methods' AND variant = 'tree'"
+    ).fetchall()
+    return sum(1 for (error,) in rows if abs(error) > np.log(3))
+
+
+def source_counts(conn):
+    """镜 11：每个来源有多少进了这 9623 款的样本表（训练集、评测 10 条以上）。
+    只数用到的：评测计数、评测抽样只取截止日 2018-07-01 的；价格历史只数截止日之前的调价，特征只用这些。"""
+    train = "(SELECT appid FROM cleaned_samples WHERE split = 'train' AND total_reviews >= 10)"
+    count = lambda sql: conn.execute(sql).fetchone()[0]
+    n_games = count("SELECT COUNT(*) FROM cleaned_samples WHERE split = 'train' AND total_reviews >= 10")
+    return {
+        "players": n_games,  # 每款一个玩家数
+        "store": count(f"SELECT COUNT(*) FROM raw_store_items WHERE appid IN {train}"),
+        "review_queries": count(f"SELECT COUNT(*) FROM raw_review_counts WHERE cutoff_date = '2018-07-01' AND appid IN {train}"),
+        "reviews": count(f"SELECT COUNT(*) FROM raw_reviews WHERE cutoff_date = '2018-07-01' AND appid IN {train}"),
+        "price_changes": count(f"SELECT COUNT(*) FROM raw_price_history WHERE changed_at < '2018-07-01' AND appid IN {train}"),
+    }
+
+
 def main():
     output_path = sys.argv[1]
 
@@ -87,6 +159,9 @@ def main():
     try:
         points = load_points(conn)
         hits, methods = method_results(conn, points)
+        curve, n_features = staged_hit_rate(conn)
+        n_off3 = off_by_three(conn)
+        sources = source_counts(conn)
     finally:
         conn.close()
 
@@ -114,6 +189,12 @@ def main():
         "bins": summaries,
         "band": edges,
         "methods": methods,
+        "tree": first_tree(),
+        "curve": curve,
+        "features": n_features,
+        # 镜 12：最好的树模型仍估错 3 倍以上的游戏（估计 ÷ 真值大于 3 或小于 1/3）
+        "off3": n_off3,
+        "sources": sources,
     }
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False)
@@ -125,6 +206,10 @@ def main():
     for s in summaries:
         print(s["label"], s["count"], "倍数", round(s["high"] / s["low"], 1),
               "中位数", round(s["median"], 1), "p10", round(s["low"], 1), "p90", round(s["high"], 1))
+    print("曲线：0 棵树", f"{curve[0][1]:.1%}", "400 棵", f"{curve[-1][1]:.1%}",
+          "（重新训练的，表里存的是", f"{methods['tree']['hit_rate']:.1%}）")
+    print("估错 3 倍以上", data["off3"], "款；各来源", data["sources"])
+    print("第 1 棵树", data["tree"])
     for variant in METHODS:
         counted = sum(h[METHODS.index(variant)] for h in hits.values()) / len(hits)
         print(variant, "估对比例", f"{methods[variant]['hit_rate']:.1%}", "逐款数出来", f"{counted:.1%}")

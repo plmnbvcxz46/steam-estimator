@@ -54,6 +54,7 @@ function buildBeats2() {
   b.fixedEffect = word(8, "依然固定");
   b.best = word(9, "最高");
   b.beat = word(9, "优于");
+  b.handoff = Infinity;  // 第三段登记时改成镜 10 的开头
   return b;
 }
 
@@ -205,6 +206,8 @@ function drawHeader2(ctx, t) {
   ctx.restore();
 
   for (const m of [0, 1, 2]) {
+    // 第三段开头，树模型的公式交给 part3.js 接着画（它要飞到顶上）
+    if (m === 2 && t >= B2.handoff) continue;
     let segs = headSegs(m);
     if (m === 1) segs = flashCoefficients(segs, t);
     // 太长就整体缩小，不超出右栏
