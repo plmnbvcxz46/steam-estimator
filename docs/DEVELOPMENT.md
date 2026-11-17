@@ -62,8 +62,9 @@ $$
 | --- | --- |
 | `crawler` | 采集外部数据，导入现成的真值表 |
 | `pipeline` | 清洗、截止日对齐、特征构造、样本划分 |
-| `analysis` | 信号 A/B、融合、置信标签、评估、全量拟合 |
+| `analysis` | 信号 A/B、融合、评估、全量拟合与冻结 |
 | `viz` | 图表 |
+| `query` | 单款查询：调用采集和清洗，读冻结的模型，套公式估算并打置信标签；不拟合 |
 
 原则：
 
@@ -88,10 +89,10 @@ query/                                   # 单款查询入口 python -m query <a
 tests/                                   # 采集、清洗、样本表、评估、画图的单元测试；数据泄露测试还没写
 data/                                    # steam.db、models/、logs/ 的内容不入 git（除 raw_* 外可重建）；data/source/ 的原始 CSV（Ars 原件、手填真值表）入 git
 figures/                                 # 生成的图和 dataflow.html（数据流图），入 git；改了画图或分析代码就重画，和代码一起提交
-docs/                                    # 设计、推导、devlog
+docs/                                    # 设计（DEVELOPMENT）、推导（DERIVATIONS）、决策记录（devlog）、讲解稿（PRESENTATION）
 ```
 
-技术栈：Python 3.11+、`requests`、`pandas`、`numpy`、`scipy`、`scikit-learn`、SQLite、`matplotlib`、Plotly。
+技术栈：Python 3.11+、`requests`、`pandas`、`numpy`、`scipy`、`scikit-learn`、`joblib`、SQLite、`matplotlib`。
 
 ### 2.2 数据表
 
@@ -129,13 +130,11 @@ docs/                                    # 设计、推导、devlog
 | `cleaned_sales_truth` | `(source, appid, report_date)` | 各真值表并成一张，只合并不取舍：`source`（`gamalytic` / `manual`）、`title`、`units_sold`、`source_url`。同一款的多条、不同来源的重复都留着 |
 | `cleaned_samples` | `sample_id` | 样本：`appid`、`cutoff_date`、`split`（`train` / `calib` / `query`）、`truth_value`（`query` 为空）；`query` 行来自 `raw_query_targets`，同一款游戏几组都有时各一行<br>评测：`total_reviews`、`positive_rate`（好评数 ÷ 评测数）、`steam_purchase_ratio`（Steam 内购买的评测数 ÷ 评测数）、`p_post`（未实现，校准没有用到）、语言占比 14 列：`share_english`、`share_schinese` 等 13 种语言一种一列（后缀是 Steam 语言代码，存的是占比，不是条数），加 `share_other`（13 种之外的占比）、`playtime_median_hrs`（评测者写评测时的游玩小时，按段加权的中位数）、`sample_n`（抽到且有时长的评测条数，只作记录，不进模型）<br>价格：`price_at_cutoff_usd`（截止日原价，免费为 0）、`avg_price_usd`（截止日前按天加权的实付价格）、`frac_time_cut25`、`frac_time_cut50`、`frac_time_cut75`（截止日前折扣不低于 25%、50%、75% 的时间占比）；历史价格缺失或截止日后才开始的，这五列都为空<br>其他：`game_age_years`（截止日减上架日，单位年，不取对数、不截断）、`tags`（取自 `cleaned_games.tags`，一列，按权重从高到低用 `\|` 连接，训练时再展开，见“样本表”一节）、`charts_total_hours`（$H$：第一条在线人数记录不晚于上架后 1 个月时，截止日所在月之前各月 `player_hours` 之和，否则为空，见“信号 B”一节） |
 
-**result：分析结果，`viz` 只读。**
+**result：分析结果，`viz` 只读。** 原设计里还有参数表和特征重要性表，没有建：最终参数和树一起存在冻结文件 `data/models/frozen.joblib`（见“最终模型”一节），特征重要性是 `result_cv_scores` 里的 `feature_importance` 这一组。
 
 | 表 | 主键 | 字段 |
 | --- | --- | --- |
 | `result_estimates`（未实现） | `sample_id` | `ln_a`、`ln_b`、`b_unavailable_reason`、`ln_fused`、`sigma`、`lower`、`upper`、`divergence`、`label`（高 / 中 / 低）；`calib` 样本存留一法预测，不存全量拟合后的预测；`train` 样本不写入 |
-| `result_params`（未实现） | `name` | `value`；`name` 取 `a`、`b`、`gamma0`、`beta`、`c`、`mu_b`、各档的 A 占比、`sigma_fused` 等，含义见“最终模型”一节 |
-| `result_feature_importance`（未实现） | `feature` | `importance`；树模型的特征重要性，供 `viz` 画图 |
 | `result_cv_scores` | `(experiment, variant)` | 五折交叉验证的成绩，一种做法一行：`n_samples`（参加五折的游戏款数）、`rmse`（$\ln k$ 的均方根误差）、`hit_rate`（$\pm 30\%$ 命中率，存小数） |
 | `result_cv_predictions` | `(experiment, variant, sample_id)` | 五折交叉验证里每款游戏的预测：`true_ln_k`（真值）、`predicted_ln_k`（预测值）；只有要画误差分布的比较才写，其余比较只写成绩 |
 
