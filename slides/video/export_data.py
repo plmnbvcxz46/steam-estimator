@@ -348,6 +348,42 @@ def calibration(conn):
     }
 
 
+def overview(conn, fus, cal):
+    """镜 26–28 的总览：三块、共 13 列，每列一种做法的误差和估对比例，每块最后一列是最终融合。
+
+    全部游戏、近年 116 款读 result_cv_scores；有信号 B 的 3722 款成绩表里只存了 A、B，
+    两种融合用 fusion() 按预测现算的那一份（和 viz/fusion_comparison.py 一样）。"""
+    stored = {(e, v): {"rmse": r, "hit": h} for e, v, r, h in conn.execute(
+        "SELECT experiment, variant, rmse, hit_rate FROM result_cv_scores"
+        " WHERE experiment IN ('methods', 'fusion', 'signal_b', 'calibration')")}
+
+    def col(name, score, note=None):
+        return {"name": name, "note": note, "rmse": float(score["rmse"]), "hit": float(score["hit"])}
+
+    return [
+        {"title": "全部", "n": fus["n_all"], "cols": [
+            col("固定 k", stored["methods", "fixed"]),
+            col("线性回归", stored["methods", "linear"]),
+            col("树模型", stored["methods", "tree"]),
+            col("简单平均", stored["fusion", "simple_mean"]),
+            col("按档加权", stored["fusion", "binned_weighted"]),
+        ]},
+        {"title": "有信号 B", "n": fus["n_with_b"], "cols": [
+            col("信号 A", stored["signal_b", "signal_a"]),
+            col("信号 B", stored["signal_b", "signal_b"]),
+            col("简单平均", fus["with_b"]["simple_mean"]),
+            col("按档加权", fus["with_b"]["binned_weighted"]),
+        ]},
+        # 这一块的固定 k 是校准集自己的平均，等于先看了答案，所以比树模型原样还高一点，屏幕上注明
+        {"title": "近年", "n": cal["n"], "cols": [
+            col("固定 k", stored["calibration", "fixed"], "自身平均"),
+            col("原样", stored["calibration", "tree_raw"]),
+            col("校准后", stored["calibration", "signal_a"]),
+            col("融合", stored["calibration", "fused"]),
+        ]},
+    ]
+
+
 def main():
     output_path = sys.argv[1]
 
@@ -364,6 +400,7 @@ def main():
         ages = k_by_year(conn)
         fus = fusion(conn)
         cal = calibration(conn)
+        over = overview(conn, fus, cal)
     finally:
         conn.close()
 
@@ -406,6 +443,8 @@ def main():
         "fusion": fus,
         # 镜 23–25
         "calibration": cal,
+        # 镜 26–28
+        "overview": over,
     }
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False)
@@ -438,6 +477,8 @@ def main():
     q = cal["query"]
     print("  查询", q["name"], q["reviews"], f"{q['units'] / 1e4:.0f} 万", f"{q['low'] / 1e4:.0f}–{q['high'] / 1e4:.0f} 万",
           "A", round(q["k_a"], 1), "B", round(q["k_b"], 1), q["label"])
+    for block in over:
+        print("总览", block["title"], block["n"], [(c["name"], round(c["rmse"], 3), f"{c['hit']:.1%}") for c in block["cols"]])
     for variant in METHODS:
         counted = sum(h[METHODS.index(variant)] for h in hits.values()) / len(hits)
         print(variant, "估对比例", f"{methods[variant]['hit_rate']:.1%}", "逐款数出来", f"{counted:.1%}")
