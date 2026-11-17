@@ -47,7 +47,7 @@ function speechWeights(text) {
 // 分镜表的一行长这样：| 镜 | 秒 | 画面与动效 | 屏幕字 | 配音 / 字幕 |
 // 单元格里的竖线都是全角“｜”，所以按半角 | 切开是安全的
 function readStoryboard() {
-  const text = readFileSync(join(HERE, "../video_storyboard.md"), "utf8");
+  const text = readFileSync(join(HERE, "storyboard.md"), "utf8");
   const shots = [];
   for (const line of text.split("\n")) {
     if (!/^\| \d+ \| \d+ \|/.test(line)) continue;
