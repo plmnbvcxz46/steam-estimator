@@ -1,392 +1,202 @@
 <!doctype html>
+<html lang="zh-CN">
+<head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>steamsales-estimator 数据流</title>
-<meta name="claude:viewport-fit-sides" content="cover">
 <style>
-/* 布局：阶段标签 → [数据流图 | 详情栏] → 字段字典。只用亮色。 */
-:root{
-  --bg:#ffffff; --fg:#1f2328; --muted:#656d76; --line:#d0d7de; --soft:#f6f8fa;
-  --train:#0969da; --calib:#bc4c00; --query:#1a7f37; --warn:#cf222e; --warnbg:#ffebe9; --inferbg:#fff8c5;
-  --sans:"PingFang SC","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif;
-  --mono:ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
-  color-scheme:light;
-}
+:root{--ink:#1f2328;--muted:#656d76;--rule:#d0d7de;--soft:#f6f8fa;--sans:system-ui,-apple-system,"Segoe UI","Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif;--mono:ui-monospace,"SF Mono","Cascadia Mono",Consolas,"DejaVu Sans Mono",monospace}
 *{box-sizing:border-box}
-body{background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:15px;line-height:1.6;margin:0}
-.gut{padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
-code,.mono{font-family:var(--mono);font-size:.92em}
-p{margin:0}
-
-body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
-nav.bar{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);border-bottom:1px solid var(--line)}
-.bar-in{max-width:1500px;margin:0 auto;display:flex;flex-wrap:wrap;gap:4px 16px;align-items:center;padding-block:8px}
-.tabs{display:flex;gap:2px;overflow-x:auto;min-width:0}
-.st{flex:none;font:inherit;color:var(--muted);background:none;border:none;border-bottom:2px solid transparent;padding:6px 8px;cursor:pointer;white-space:nowrap}
-.st:hover{color:var(--fg)}
-.st[aria-current="step"]{color:var(--fg);border-bottom-color:var(--fg);font-weight:600}
-.right{margin-left:auto;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
-.pb{font:inherit;font-size:14px;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:3px 10px;cursor:pointer}
-.pb.t{color:var(--train)} .pb.c{color:var(--calib)} .pb.q{color:var(--query)}
-.pb[aria-pressed="true"]{background:var(--soft);font-weight:600;border-color:currentColor}
-button:focus-visible,.node:focus-visible,a:focus-visible,summary:focus-visible{outline:2px solid var(--train);outline-offset:2px}
-
-main{max-width:1500px;margin:0 auto;display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:16px;padding-block:14px 24px}
-@media (max-width:1060px){main{grid-template-columns:minmax(0,1fr)}}
-.board{border:1px solid var(--line);border-radius:8px;overflow:auto;max-height:calc(100vh - 124px);min-width:0;scroll-behavior:smooth}
-@media (max-width:1060px){.board{max-height:70vh}}
-@media (prefers-reduced-motion:reduce){.board{scroll-behavior:auto}}
-.board svg{display:block}
-
-.band{fill:transparent} .band.cur{fill:var(--soft)}
-.bandlbl{font-size:14px;fill:var(--muted)} .bandlbl.cur{fill:var(--fg);font-weight:600}
-.node{cursor:pointer}
-.node .box{fill:var(--bg);stroke:var(--line);stroke-width:1}
-.node.src .box{stroke-dasharray:4 3}
-.node.step .box{fill:var(--soft);stroke:var(--muted)}
-.node .t{font-size:13px;font-weight:600;fill:var(--fg)}
-.node .t.mono{font-family:var(--mono);font-size:12.5px}
-.node .k{font-family:var(--mono);font-size:12px;fill:var(--muted)}
-.node:hover .box{stroke:var(--fg)}
-.node.sel .box{stroke:var(--fg);stroke-width:2}
-.node.dim{opacity:.3}
-.edge path.vis{fill:none;stroke:#8c959f;stroke-width:1.2}
-.edge.T path.vis{stroke:var(--train)} .edge.C path.vis{stroke:var(--calib)} .edge.Q path.vis{stroke:var(--query)}
-.edge.dash path.vis{stroke-dasharray:4 4}
-.edge .hit{fill:none;stroke:transparent;stroke-width:12;cursor:pointer}
-.lbl{display:none;font-size:12.5px;fill:var(--fg);paint-order:stroke;stroke:var(--bg);stroke-width:5px;stroke-linejoin:round;pointer-events:none}
-.lbl.T{fill:var(--train)} .lbl.C{fill:var(--calib)} .lbl.Q{fill:var(--query)}
-.lbl.show{display:block}
-.edge.on path.vis{stroke-width:2.4}
-.edge.dim{opacity:.15}
-
-aside.panel{position:sticky;top:60px;align-self:start;max-height:calc(100vh - 76px);overflow:auto;border:1px solid var(--line);border-radius:8px;padding:16px 16px 20px;display:flex;flex-direction:column;gap:14px;min-width:0}
-@media (max-width:1060px){aside.panel{position:static;max-height:none}}
-.panel h2{font-size:17px;margin:0;font-weight:600;word-break:break-all}
-.panel h2.mono{font-family:var(--mono);font-size:16px}
-.panel h3{font-size:14px;margin:0 0 4px;font-weight:600;color:var(--muted)}
-.back{font:inherit;font-size:14px;color:var(--muted);background:none;border:none;padding:0;cursor:pointer;align-self:flex-start}
-.back:hover{color:var(--fg)}
-ul.rules{margin:0;padding-left:1.1em;display:flex;flex-direction:column;gap:2px}
-.formula{font-family:var(--mono);font-size:13px;background:var(--soft);border-radius:6px;padding:8px 10px;white-space:pre-wrap;line-height:1.6}
-.fld{display:flex;flex-direction:column;gap:3px;padding:8px 0;border-top:1px solid var(--line)}
-.fld:first-child{border-top:none;padding-top:0}
-.fn{font-family:var(--mono);font-size:14px;font-weight:600;word-break:break-all}
-.chips{display:flex;flex-wrap:wrap;gap:5px}
-.chip{font:inherit;font-size:13px;line-height:1.6;border:1px solid var(--line);background:var(--bg);color:var(--fg);border-radius:12px;padding:0 9px;cursor:pointer;white-space:nowrap}
-.chip:hover{background:var(--soft)}
-.flag{font-size:13px;border-radius:4px;padding:0 6px;white-space:nowrap;margin-left:4px}
-.flag.none{color:var(--muted);border:1px solid var(--line)}
-.links{display:flex;flex-direction:column;gap:4px}
-details.more>summary{cursor:pointer;color:var(--muted);font-size:14px}
-table.mini{border-collapse:collapse;width:100%;font-size:14px}
-table.mini th,table.mini td{text-align:left;padding:4px 8px;border-bottom:1px solid var(--line);vertical-align:top}
-table.mini th{color:var(--muted);font-weight:600}
-.pager{display:flex;justify-content:space-between;gap:8px}
-
-.legend{max-width:1500px;margin:0 auto;display:flex;flex-wrap:wrap;gap:6px 18px;font-size:14px;color:var(--muted);padding-block:0 4px}
-.legend b{font-family:var(--mono);font-weight:600}
-section.appx{max-width:1500px;margin:0 auto;padding-block:8px 48px;display:flex;flex-direction:column;gap:10px}
-.appx h2{font-size:16px;margin:0;font-weight:600}
-.appx .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:8px}
-.appx details{border:1px solid var(--line);border-radius:6px}
-.appx summary{cursor:pointer;padding:6px 12px;font-family:var(--mono);font-size:14px}
-.appx .body{padding:0 12px 10px;overflow-x:auto}
+html{scrollbar-gutter:stable;overflow-y:scroll;scrollbar-width:thin;scrollbar-color:#d0d7de transparent}
+@supports not (scrollbar-width:thin){::-webkit-scrollbar{width:8px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:#d0d7de;border-radius:4px}::-webkit-scrollbar-thumb:hover{background:#8c959f}}
+body{margin:0;background:#fff;color:var(--ink);font-family:var(--sans)}
+.wrap{max-width:1856px;margin:0 auto}
+svg{display:block;width:100%;height:auto;font-family:var(--sans)}
+.title{font-size:20px;font-weight:600;fill:var(--ink)}
+.h{font-size:14px;font-weight:600;fill:var(--ink)}
+.s{font-size:13px;font-weight:600;fill:var(--ink)}
+.m{font-family:var(--mono);font-size:12px;fill:var(--ink)}
+.b{font-weight:700}
+.mu{fill:var(--muted)}
+.n{font-size:11px;fill:var(--muted)}
+.n2{font-size:12.5px;fill:var(--ink)}
+.frame{fill:#fff;stroke:var(--rule)}
+.src .frame{fill:none;stroke-dasharray:4 3}
+.log .frame{stroke-dasharray:2 3}
+.step .frame{fill:var(--soft)}
+.out .frame{stroke:var(--ink);stroke-width:1.4}
+.hit{fill:transparent}
+.chip .hit{fill:#fff}
+.frame.hit{fill:#fff} .step .frame.hit{fill:var(--soft)}
+.row{cursor:pointer;outline:none}
+.row:hover .hit,.row:focus-visible .hit{fill:#eef1f4}
+.row.sel .hit{fill:#e4e8ec}
+.row.sel .frame.hit,.node.sel>.frame{stroke:var(--ink);stroke-width:1.6;stroke-dasharray:none}
+.chip.sel .hit{stroke-width:2.2}
+.edge{fill:none;stroke-width:1.2;transition:opacity .15s}
+.node{transition:opacity .15s}
+svg.focus .edge{opacity:.12} svg.focus .edge.on{opacity:1;stroke-width:2}
+svg.focus .node{opacity:.32} svg.focus .node.on{opacity:1}
+.dock{margin:0 32px 28px;border-top:1.4px solid var(--ink);padding-top:14px;min-height:232px;display:grid;grid-template-columns:462px 1fr;column-gap:70px}
+.dock .stage{font-size:12px;color:var(--muted);margin:0 0 6px}
+.dock h2{font-size:18px;font-weight:600;margin:0 0 8px;word-break:break-all}
+.dock h2.mono{font-family:var(--mono);font-size:16px}
+.dock p{font-size:13.5px;line-height:1.6;margin:0 0 12px}
+.dock code{font-family:var(--mono);font-size:12px}
+.rel{display:grid;grid-template-columns:36px 1fr;row-gap:6px;font-size:12px;color:var(--muted);align-items:baseline}
+.rel div{display:flex;flex-wrap:wrap;gap:4px 6px}
+.rel button{font:12px var(--mono);color:var(--ink);background:#fff;border:1px solid var(--rule);border-radius:4px;padding:1px 6px;cursor:pointer}
+.rel button.cn{font-family:var(--sans)}
+.rel button:hover{background:#eef1f4}
+.fl{font-size:12px;color:var(--muted);margin:0 0 6px}
+.fields{columns:3 380px;column-gap:40px;margin:0;padding:0;list-style:none}
+.fields li{display:grid;grid-template-columns:186px 1fr;column-gap:10px;font-size:12.5px;line-height:1.5;padding:3px 0;border-bottom:1px solid #eaeef2;break-inside:avoid}
+.fields .k{font-family:var(--mono);font-size:12px}
+.fields .k.cn{font-family:var(--sans);font-size:12.5px}
+.fields .pk{font-weight:700}
+.fields .v{color:var(--muted)}
+.dock.idle{visibility:hidden}
+@media (max-width:900px){.dock{grid-template-columns:1fr;row-gap:16px}}
 </style>
-
-<nav class="bar gut"><div class="bar-in">
-  <div class="tabs" id="tabs"></div>
-  <div class="right">
-    <button type="button" class="pb t" data-path="T" aria-pressed="false" id="pt">train</button>
-    <button type="button" class="pb c" data-path="C" aria-pressed="false" id="pc">calib</button>
-    <button type="button" class="pb q" data-path="Q" aria-pressed="false" id="pq">query</button>
-  </div>
-</div></nav>
-
-<main class="gut">
-  <div style="min-width:0;display:flex;flex-direction:column;gap:6px">
-    <div class="board" id="board"></div>
-    <div class="legend" id="legend"></div>
-  </div>
-  <aside class="panel" id="panel" aria-live="polite"></aside>
-</main>
-
-<section class="appx gut">
-  <h2>字段字典</h2>
-  <div class="grid" id="appx"></div>
-</section>
-
+</head>
+<body>
+<div class="wrap">
+<svg viewBox="0 0 1856 770" role="img" aria-label="steamsales-estimator 数据流图">
+<defs><marker id="a8c959f" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,1 L10,5 L0,9 z" fill="#8c959f"/></marker><marker id="a0969da" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,1 L10,5 L0,9 z" fill="#0969da"/></marker><marker id="a9a6700" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,1 L10,5 L0,9 z" fill="#9a6700"/></marker><marker id="a1a7f37" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,1 L10,5 L0,9 z" fill="#1a7f37"/></marker></defs>
+<text x="32" y="44" class="title">steamsales-estimator 数据流</text>
+<line x1="32" y1="76" x2="228" y2="76" stroke="#1f2328" stroke-width="1.4"/><text x="32" y="96" class="h">数据源</text>
+<line x1="298" y1="76" x2="494" y2="76" stroke="#1f2328" stroke-width="1.4"/><text x="298" y="96" class="h">原始表</text>
+<text x="494" y="96" class="m mu" text-anchor="end">crawler</text>
+<line x1="564" y1="76" x2="760" y2="76" stroke="#1f2328" stroke-width="1.4"/><text x="564" y="96" class="h">清洗表</text>
+<text x="760" y="96" class="m mu" text-anchor="end">pipeline</text>
+<line x1="830" y1="76" x2="1026" y2="76" stroke="#1f2328" stroke-width="1.4"/><text x="830" y="96" class="h">样本表</text>
+<text x="1026" y="96" class="m mu" text-anchor="end">pipeline.samples</text>
+<line x1="1096" y1="76" x2="1292" y2="76" stroke="#1f2328" stroke-width="1.4"/><text x="1096" y="96" class="h">分析</text>
+<text x="1292" y="96" class="m mu" text-anchor="end">analysis</text>
+<line x1="1362" y1="76" x2="1558" y2="76" stroke="#1f2328" stroke-width="1.4"/><text x="1362" y="96" class="h">结果</text>
+<text x="1558" y="96" class="m mu" text-anchor="end">result_*</text>
+<line x1="1628" y1="76" x2="1824" y2="76" stroke="#1f2328" stroke-width="1.4"/><text x="1628" y="96" class="h">输出</text>
+<text x="1824" y="96" class="m mu" text-anchor="end">viz  ·  query</text>
+<path class="edge" data-from="s_ars" data-to="b_raw_ars_players_2018" data-tags="T" d="M228,147.0 H298" stroke="#8c959f" marker-end="url(#a8c959f)"/>
+<path class="edge" data-from="s_gam" data-to="b_raw_truth_gamalytic" data-tags="C" d="M228,201.0 H298" stroke="#8c959f" marker-end="url(#a8c959f)"/>
+<path class="edge" data-from="s_man" data-to="b_raw_truth_manual" data-tags="C" d="M228,255.0 H298" stroke="#8c959f" marker-end="url(#a8c959f)"/>
+<path class="edge" data-from="s_q" data-to="b_raw_query_targets" data-tags="Q" d="M228,309.0 H298" stroke="#8c959f" marker-end="url(#a8c959f)"/>
+<path class="edge" data-from="s_store" data-to="b_raw_store_items" data-tags="TCQ" d="M228,383.0 H298" stroke="#8c959f" marker-end="url(#a8c959f)"/>
+<path class="edge" data-from="b_raw_store_items" data-to="cleaned_games" data-tags="TCQ" d="M494,383.0 H564" stroke="#8c959f" marker-end="url(#a8c959f)"/>
+<path class="edge" data-from="s_rev" data-to="b_raw_review_windows" data-tags="TCQ" d="M228,467.0 H298" stroke="#8c959f" marker-end="url(#a8c959f)"/>
+<path class="edge" data-from="b_raw_review_counts" data-to="cleaned_review_counts" data-tags="TCQ" d="M494,531.0 H564" stroke="#8c959f" marker-end="url(#a8c959f)"/>
+<path class="edge" data-from="s_itad" data-to="b_raw_itad_ids" data-tags="TCQ" d="M228,595.0 H298" stroke="#8c959f" marker-end="url(#a8c959f)"/>
+<path class="edge" data-from="b_raw_itad_ids" data-to="cleaned_prices" data-tags="TCQ" d="M494,595.0 H564" stroke="#8c959f" marker-end="url(#a8c959f)"/>
+<path class="edge" data-from="s_charts" data-to="b_raw_charts_monthly" data-tags="TCQ" d="M228,659.0 H298" stroke="#8c959f" marker-end="url(#a8c959f)"/>
+<path class="edge" data-from="b_raw_charts_monthly" data-to="cleaned_charts_monthly" data-tags="TCQ" d="M494,659.0 H564" stroke="#8c959f" marker-end="url(#a8c959f)"/>
+<path class="edge" data-from="s_rev" data-to="b_raw_review_counts" data-tags="TCQ" d="M228,467.0 C263.0,467.0 263.0,531.0 298,531.0" stroke="#8c959f" marker-end="url(#a8c959f)"/>
+<path class="edge" data-from="b_raw_truth_gamalytic" data-to="cleaned_sales_truth" data-tags="C" d="M494,201.0 C529.0,201.0 529.0,228.0 564,228.0" stroke="#8c959f" marker-end="url(#a8c959f)"/>
+<path class="edge" data-from="b_raw_truth_manual" data-to="cleaned_sales_truth" data-tags="C" d="M494,255.0 C529.0,255.0 529.0,228.0 564,228.0" stroke="#8c959f" marker-end="url(#a8c959f)"/>
+<path class="edge" data-from="b_raw_review_windows" data-to="cleaned_games" data-tags="TCQ" d="M494,460.0 C529.0,460.0 529.0,390.0 564,390.0" stroke="#8c959f" marker-end="url(#a8c959f)"/>
+<path class="edge" data-from="b_raw_ars_players_2018" data-to="samples" data-tags="T" d="M494,147.0 H830" stroke="#8c959f" marker-end="url(#a8c959f)"/>
+<path class="edge" data-from="cleaned_sales_truth" data-to="samples" data-tags="C" d="M760,228.0 H830" stroke="#8c959f" marker-end="url(#a8c959f)"/>
+<path class="edge" data-from="b_raw_query_targets" data-to="samples" data-tags="Q" d="M494,309.0 H830" stroke="#8c959f" marker-end="url(#a8c959f)"/>
+<path class="edge" data-from="b_raw_review_windows" data-to="samples" data-tags="TCQ" d="M494,474.0 H830" stroke="#8c959f" marker-end="url(#a8c959f)"/>
+<path class="edge" data-from="cleaned_games" data-to="samples" data-tags="TCQ" d="M760,383.0 H830" stroke="#8c959f" marker-end="url(#a8c959f)"/>
+<path class="edge" data-from="cleaned_review_counts" data-to="samples" data-tags="TCQ" d="M760,531.0 H830" stroke="#8c959f" marker-end="url(#a8c959f)"/>
+<path class="edge" data-from="cleaned_prices" data-to="samples" data-tags="TCQ" d="M760,595.0 H830" stroke="#8c959f" marker-end="url(#a8c959f)"/>
+<path class="edge" data-from="cleaned_charts_monthly" data-to="samples" data-tags="TCQ" d="M760,659.0 H830" stroke="#8c959f" marker-end="url(#a8c959f)"/>
+<path class="edge" data-from="samples" data-to="a_cmp" data-tags="T" d="M1026,360.0 C1061.0,360.0 1061.0,243.0 1096,243.0" stroke="#0969da" marker-end="url(#a0969da)"/>
+<path class="edge" data-from="samples" data-to="a_sa" data-tags="T" d="M1026,360.0 C1061.0,360.0 1061.0,343.0 1096,343.0" stroke="#0969da" marker-end="url(#a0969da)"/>
+<path class="edge" data-from="samples" data-to="a_sb" data-tags="T" d="M1026,360.0 C1061.0,360.0 1061.0,423.0 1096,423.0" stroke="#0969da" marker-end="url(#a0969da)"/>
+<path class="edge" data-from="samples" data-to="a_ca" data-tags="C" d="M1026,406.0 C1061.0,406.0 1061.0,583.0 1096,583.0" stroke="#9a6700" marker-end="url(#a9a6700)"/>
+<path class="edge" data-from="a_cmp" data-to="b_result" data-tags="T" d="M1292,243.0 C1327.0,243.0 1327.0,423.0 1362,423.0" stroke="#8c959f" marker-end="url(#a8c959f)"/>
+<path class="edge" data-from="a_sa" data-to="b_result" data-tags="T" d="M1292,343.0 C1327.0,343.0 1327.0,423.0 1362,423.0" stroke="#8c959f" marker-end="url(#a8c959f)"/>
+<path class="edge" data-from="a_sb" data-to="b_result" data-tags="T" d="M1292,423.0 H1362" stroke="#8c959f" marker-end="url(#a8c959f)"/>
+<path class="edge" data-from="a_fu" data-to="b_result" data-tags="T" d="M1292,503.0 C1327.0,503.0 1327.0,423.0 1362,423.0" stroke="#8c959f" marker-end="url(#a8c959f)"/>
+<path class="edge" data-from="a_ca" data-to="b_result" data-tags="C" d="M1292,573.0 C1327.0,573.0 1327.0,423.0 1362,423.0" stroke="#8c959f" marker-end="url(#a8c959f)"/>
+<path class="edge" data-from="a_ca" data-to="frozen" data-tags="C" d="M1292,583.0 H1362" stroke="#8c959f" marker-end="url(#a8c959f)"/>
+<path class="edge" data-from="b_result" data-to="figs" data-tags="TC" d="M1558,423.0 C1593.0,423.0 1593.0,190.0 1628,190.0" stroke="#8c959f" marker-end="url(#a8c959f)"/>
+<path class="edge" data-from="frozen" data-to="out_q" data-tags="Q" d="M1558,583.0 C1593.0,583.0 1593.0,677.0 1628,677.0" stroke="#8c959f" marker-end="url(#a8c959f)"/>
+<path class="edge" data-from="samples" data-to="figs" data-tags="TC" d="M1026,174.0 H1628" stroke="#8c959f" marker-end="url(#a8c959f)"/>
+<path class="edge" data-from="a_sa" data-to="a_sb" data-tags="T" d="M1194.0,372.0 V394.0" stroke="#8c959f" marker-end="url(#a8c959f)"/>
+<path class="edge" data-from="a_sb" data-to="a_fu" data-tags="T" d="M1194.0,452.0 V474.0" stroke="#8c959f" marker-end="url(#a8c959f)"/>
+<path class="edge" data-from="a_fu" data-to="a_ca" data-tags="C" d="M1194.0,532.0 V554.0" stroke="#8c959f" marker-end="url(#a8c959f)"/>
+<path class="edge" data-from="samples" data-to="out_q" data-tags="Q" d="M1026,452.0 H1036 Q1050,452.0 1050,466.0 V683.0 Q1050,697.0 1064,697.0 H1628" stroke="#1a7f37" marker-end="url(#a1a7f37)"/>
+<g class="node tbl" data-box="b_raw_ars_players_2018"><rect class="frame" x="298" y="128" width="196" height="38" rx="5"/><g class="row" data-id="raw_ars_players_2018" tabindex="0" role="button" aria-label="raw_ars_players_2018"><rect class="hit" x="298" y="128" width="196" height="38" rx="4"/><text x="311" y="151.5" class="m">raw_ars_players_2018</text></g></g>
+<g class="node src" data-box="s_ars"><rect class="frame" x="32" y="128.0" width="196" height="38" rx="5"/><g class="row" data-id="s_ars" tabindex="0" role="button" aria-label="Ars Technica 玩家数表"><rect class="hit" x="32" y="128.0" width="196" height="38" rx="4"/><text x="45" y="151.5" class="s">Ars Technica 玩家数表</text></g></g>
+<g class="node tbl" data-box="b_raw_truth_gamalytic"><rect class="frame" x="298" y="182" width="196" height="38" rx="5"/><g class="row" data-id="raw_truth_gamalytic" tabindex="0" role="button" aria-label="raw_truth_gamalytic"><rect class="hit" x="298" y="182" width="196" height="38" rx="4"/><text x="311" y="205.5" class="m">raw_truth_gamalytic</text></g></g>
+<g class="node src" data-box="s_gam"><rect class="frame" x="32" y="182.0" width="196" height="38" rx="5"/><g class="row" data-id="s_gam" tabindex="0" role="button" aria-label="Gamalytic 销量对照表"><rect class="hit" x="32" y="182.0" width="196" height="38" rx="4"/><text x="45" y="205.5" class="s">Gamalytic 销量对照表</text></g></g>
+<g class="node tbl" data-box="b_raw_truth_manual"><rect class="frame" x="298" y="236" width="196" height="38" rx="5"/><g class="row" data-id="raw_truth_manual" tabindex="0" role="button" aria-label="raw_truth_manual"><rect class="hit" x="298" y="236" width="196" height="38" rx="4"/><text x="311" y="259.5" class="m">raw_truth_manual</text></g></g>
+<g class="node src" data-box="s_man"><rect class="frame" x="32" y="236.0" width="196" height="38" rx="5"/><g class="row" data-id="s_man" tabindex="0" role="button" aria-label="手填真值表"><rect class="hit" x="32" y="236.0" width="196" height="38" rx="4"/><text x="45" y="259.5" class="s">手填真值表</text></g></g>
+<g class="node tbl" data-box="b_raw_query_targets"><rect class="frame" x="298" y="290" width="196" height="38" rx="5"/><g class="row" data-id="raw_query_targets" tabindex="0" role="button" aria-label="raw_query_targets"><rect class="hit" x="298" y="290" width="196" height="38" rx="4"/><text x="311" y="313.5" class="m">raw_query_targets</text></g></g>
+<g class="node src" data-box="s_q"><rect class="frame" x="32" y="290.0" width="196" height="38" rx="5"/><g class="row" data-id="s_q" tabindex="0" role="button" aria-label="查询的 appid"><rect class="hit" x="32" y="290.0" width="196" height="38" rx="4"/><text x="45" y="313.5" class="s">查询的 appid</text></g></g>
+<g class="node tbl" data-box="b_raw_store_items"><rect class="frame" x="298" y="344" width="196" height="78" rx="5"/><g class="row" data-id="raw_store_items" tabindex="0" role="button" aria-label="raw_store_items"><rect class="hit" x="302" y="353" width="188" height="20" rx="4"/><text x="311" y="367.5" class="m">raw_store_items</text></g><g class="row" data-id="raw_store_tags" tabindex="0" role="button" aria-label="raw_store_tags"><rect class="hit" x="302" y="373" width="188" height="20" rx="4"/><text x="311" y="387.5" class="m">raw_store_tags</text></g><g class="row" data-id="raw_tag_names" tabindex="0" role="button" aria-label="raw_tag_names"><rect class="hit" x="302" y="393" width="188" height="20" rx="4"/><text x="311" y="407.5" class="m">raw_tag_names</text></g></g>
+<g class="node src" data-box="s_store"><rect class="frame" x="32" y="364.0" width="196" height="38" rx="5"/><g class="row" data-id="s_store" tabindex="0" role="button" aria-label="Steam 商店"><rect class="hit" x="32" y="364.0" width="196" height="38" rx="4"/><text x="45" y="387.5" class="s">Steam 商店</text></g></g>
+<g class="node tbl" data-box="cleaned_games"><rect class="frame" x="564" y="364.0" width="196" height="38" rx="5"/><g class="row" data-id="cleaned_games" tabindex="0" role="button" aria-label="cleaned_games"><rect class="hit" x="564" y="364.0" width="196" height="38" rx="4"/><text x="577" y="387.5" class="m">cleaned_games</text></g></g>
+<g class="node tbl" data-box="b_raw_review_windows"><rect class="frame" x="298" y="438" width="196" height="58" rx="5"/><g class="row" data-id="raw_review_windows" tabindex="0" role="button" aria-label="raw_review_windows"><rect class="hit" x="302" y="447" width="188" height="20" rx="4"/><text x="311" y="461.5" class="m">raw_review_windows</text></g><g class="row" data-id="raw_reviews" tabindex="0" role="button" aria-label="raw_reviews"><rect class="hit" x="302" y="467" width="188" height="20" rx="4"/><text x="311" y="481.5" class="m">raw_reviews</text></g></g>
+<g class="node src" data-box="s_rev"><rect class="frame" x="32" y="448.0" width="196" height="38" rx="5"/><g class="row" data-id="s_rev" tabindex="0" role="button" aria-label="Steam 评测"><rect class="hit" x="32" y="448.0" width="196" height="38" rx="4"/><text x="45" y="471.5" class="s">Steam 评测</text></g></g>
+<g class="node tbl" data-box="b_raw_review_counts"><rect class="frame" x="298" y="512" width="196" height="38" rx="5"/><g class="row" data-id="raw_review_counts" tabindex="0" role="button" aria-label="raw_review_counts"><rect class="hit" x="298" y="512" width="196" height="38" rx="4"/><text x="311" y="535.5" class="m">raw_review_counts</text></g></g>
+<g class="node tbl" data-box="cleaned_review_counts"><rect class="frame" x="564" y="512.0" width="196" height="38" rx="5"/><g class="row" data-id="cleaned_review_counts" tabindex="0" role="button" aria-label="cleaned_review_counts"><rect class="hit" x="564" y="512.0" width="196" height="38" rx="4"/><text x="577" y="535.5" class="m">cleaned_review_counts</text></g></g>
+<g class="node tbl" data-box="b_raw_itad_ids"><rect class="frame" x="298" y="566" width="196" height="58" rx="5"/><g class="row" data-id="raw_itad_ids" tabindex="0" role="button" aria-label="raw_itad_ids"><rect class="hit" x="302" y="575" width="188" height="20" rx="4"/><text x="311" y="589.5" class="m">raw_itad_ids</text></g><g class="row" data-id="raw_price_history" tabindex="0" role="button" aria-label="raw_price_history"><rect class="hit" x="302" y="595" width="188" height="20" rx="4"/><text x="311" y="609.5" class="m">raw_price_history</text></g></g>
+<g class="node src" data-box="s_itad"><rect class="frame" x="32" y="576.0" width="196" height="38" rx="5"/><g class="row" data-id="s_itad" tabindex="0" role="button" aria-label="ITAD 价格历史"><rect class="hit" x="32" y="576.0" width="196" height="38" rx="4"/><text x="45" y="599.5" class="s">ITAD 价格历史</text></g></g>
+<g class="node tbl" data-box="cleaned_prices"><rect class="frame" x="564" y="576.0" width="196" height="38" rx="5"/><g class="row" data-id="cleaned_prices" tabindex="0" role="button" aria-label="cleaned_prices"><rect class="hit" x="564" y="576.0" width="196" height="38" rx="4"/><text x="577" y="599.5" class="m">cleaned_prices</text></g></g>
+<g class="node tbl" data-box="b_raw_charts_monthly"><rect class="frame" x="298" y="640" width="196" height="38" rx="5"/><g class="row" data-id="raw_charts_monthly" tabindex="0" role="button" aria-label="raw_charts_monthly"><rect class="hit" x="298" y="640" width="196" height="38" rx="4"/><text x="311" y="663.5" class="m">raw_charts_monthly</text></g></g>
+<g class="node src" data-box="s_charts"><rect class="frame" x="32" y="640.0" width="196" height="38" rx="5"/><g class="row" data-id="s_charts" tabindex="0" role="button" aria-label="SteamCharts 在线人数"><rect class="hit" x="32" y="640.0" width="196" height="38" rx="4"/><text x="45" y="663.5" class="s">SteamCharts 在线人数</text></g></g>
+<g class="node tbl" data-box="cleaned_charts_monthly"><rect class="frame" x="564" y="640.0" width="196" height="38" rx="5"/><g class="row" data-id="cleaned_charts_monthly" tabindex="0" role="button" aria-label="cleaned_charts_monthly"><rect class="hit" x="564" y="640.0" width="196" height="38" rx="4"/><text x="577" y="663.5" class="m">cleaned_charts_monthly</text></g></g>
+<g class="node tbl" data-box="cleaned_sales_truth"><rect class="frame" x="564" y="209.0" width="196" height="38" rx="5"/><g class="row" data-id="cleaned_sales_truth" tabindex="0" role="button" aria-label="cleaned_sales_truth"><rect class="hit" x="564" y="209.0" width="196" height="38" rx="4"/><text x="577" y="232.5" class="m">cleaned_sales_truth</text></g></g>
+<g class="node log" data-box="raw_crawl_log"><rect class="frame" x="298" y="704" width="196" height="38" rx="5"/><g class="row" data-id="raw_crawl_log" tabindex="0" role="button" aria-label="raw_crawl_log"><rect class="hit" x="298" y="704" width="196" height="38" rx="4"/><text x="311" y="727.5" class="m">raw_crawl_log</text></g></g>
+<g class="node tbl" data-box="samples"><rect class="frame" x="830" y="128" width="196" height="550" rx="5"/><g class="row" data-id="cleaned_samples" tabindex="0" role="button" aria-label="cleaned_samples"><rect class="hit" x="830" y="128" width="196" height="550" rx="5"/><text x="843" y="151.5" class="m">cleaned_samples</text></g><g class="row chip" data-id="train" data-path="T" tabindex="0" role="button" aria-label="train"><rect class="hit" x="843" y="341.0" width="170" height="38" rx="4" style="stroke:#0969da"/><text x="853" y="357.0" class="m b" fill="#0969da">train</text><text x="853" y="372.0" class="n">2018 年，真值为玩家数</text></g><g class="row chip" data-id="calib" data-path="C" tabindex="0" role="button" aria-label="calib"><rect class="hit" x="843" y="387.0" width="170" height="38" rx="4" style="stroke:#9a6700"/><text x="853" y="403.0" class="m b" fill="#9a6700">calib</text><text x="853" y="418.0" class="n">近年，真值为销量</text></g><g class="row chip" data-id="query" data-path="Q" tabindex="0" role="button" aria-label="query"><rect class="hit" x="843" y="433.0" width="170" height="38" rx="4" style="stroke:#1a7f37"/><text x="853" y="449.0" class="m b" fill="#1a7f37">query</text><text x="853" y="464.0" class="n">查询当天，无真值</text></g></g>
+<g class="node step" data-box="a_cmp"><g class="row" data-id="a_cmp" tabindex="0" role="button" aria-label="对照与比较"><rect class="frame hit" x="1096" y="194.0" width="196" height="98" rx="5"/><text x="1109" y="217.5" class="s">对照与比较</text><text x="1109" y="237.5" class="m mu">baselines</text><text x="1109" y="257.5" class="m mu">tree_params</text><text x="1109" y="277.5" class="m mu">feature_importance</text></g></g>
+<g class="node step" data-box="a_sa"><g class="row" data-id="a_sa" tabindex="0" role="button" aria-label="信号 A：树模型"><rect class="frame hit" x="1096" y="314.0" width="196" height="58" rx="5"/><text x="1109" y="337.5" class="s">信号 A：树模型</text><text x="1109" y="357.5" class="m mu">signal_a</text></g></g>
+<g class="node step" data-box="a_sb"><g class="row" data-id="a_sb" tabindex="0" role="button" aria-label="信号 B：在线人数"><rect class="frame hit" x="1096" y="394.0" width="196" height="58" rx="5"/><text x="1109" y="417.5" class="s">信号 B：在线人数</text><text x="1109" y="437.5" class="m mu">signal_b</text></g></g>
+<g class="node step" data-box="a_fu"><g class="row" data-id="a_fu" tabindex="0" role="button" aria-label="融合"><rect class="frame hit" x="1096" y="474.0" width="196" height="58" rx="5"/><text x="1109" y="497.5" class="s">融合</text><text x="1109" y="517.5" class="m mu">fusion</text></g></g>
+<g class="node step" data-box="a_ca"><g class="row" data-id="a_ca" tabindex="0" role="button" aria-label="校准与冻结"><rect class="frame hit" x="1096" y="554.0" width="196" height="58" rx="5"/><text x="1109" y="577.5" class="s">校准与冻结</text><text x="1109" y="597.5" class="m mu">calibration</text></g></g>
+<g class="node tbl" data-box="b_result"><rect class="frame" x="1362" y="394.0" width="196" height="58" rx="5"/><g class="row" data-id="result_cv_scores" tabindex="0" role="button" aria-label="result_cv_scores"><rect class="hit" x="1366" y="403.0" width="188" height="20" rx="4"/><text x="1375" y="417.5" class="m">result_cv_scores</text></g><g class="row" data-id="result_cv_predictions" tabindex="0" role="button" aria-label="result_cv_predictions"><rect class="hit" x="1366" y="423.0" width="188" height="20" rx="4"/><text x="1375" y="437.5" class="m">result_cv_predictions</text></g></g>
+<g class="node tbl" data-box="frozen"><rect class="frame" x="1362" y="564.0" width="196" height="38" rx="5"/><g class="row" data-id="frozen" tabindex="0" role="button" aria-label="models/frozen.joblib"><rect class="hit" x="1362" y="564.0" width="196" height="38" rx="4"/><text x="1375" y="587.5" class="m">models/frozen.joblib</text></g></g>
+<g class="node out" data-box="figs"><g class="row" data-id="figs" tabindex="0" role="button" aria-label="图表"><rect class="frame hit" x="1628" y="153.0" width="196" height="58" rx="5"/><text x="1641" y="176.5" class="s">图表</text><text x="1641" y="196.5" class="m mu">figures/*.png</text></g></g>
+<g class="node out" data-box="out_q"><g class="row" data-id="out_q" tabindex="0" role="button" aria-label="单款查询"><rect class="frame hit" x="1628" y="638.0" width="196" height="98" rx="5"/><text x="1641" y="661.5" class="s">单款查询</text><text x="1641" y="681.5" class="n2">估计销量</text><text x="1641" y="701.5" class="n2">80% 预测区间</text><text x="1641" y="721.5" class="n2">置信标签</text></g></g>
+</svg>
+<section class="dock" id="dock" aria-live="polite"></section>
+</div>
 <script>
-const SPLIT={T:{name:'train',d:'2018，真值 = 玩家数'},C:{name:'calib',d:'近年，真值 = 销量'},Q:{name:'query',d:'当天，无真值'}};
-const F=(f,m,to=[],o={})=>({f,m,to,...o});
-
-const STAGES=[
- {id:'collect',name:'采集',cols:[0,1],what:'crawler 从 Steam 商店接口、Steam 评测接口、SteamCharts 采集，另导入 Ars 玩家数表、近年真值表、历史价格表，原样写入 raw。',
-  rules:['只有 crawler 联网','限速、超时、退避重试','按主键续传；空结果记 raw_crawl_log','评测只取截止日前计数 + 少量抽样','不爬 SteamDB']},
- {id:'clean',name:'清洗',cols:[2],what:'整理与截止日无关的游戏信息、价格、在线人数。',
-  rules:['剔除：免费、非游戏、零评测、重复、上架晚于截止日','剔除写日志','只按输入侧条件筛选','抢先体验：上架日取首条评测日期','无历史价：用当前原价，深度折扣占比和平均实付价格留空','历史价两来源冲突以 ITAD 为准']},
- {id:'sample',name:'拼样本',cols:[3],what:'一款游戏 + 一个截止日 → cleaned_samples 一行。',
-  formula:'H = Σ c_m · d_m\nc_m 月均在线人数，d_m 当月小时数\n累加到截止日所在月的前一月',
-  rules:['截止日截断只在此做一次','train：评测数 ≥ 500','calib：校验评测数足够、截止日不早于 2013-11','train 不含 calib 的 appid','playtime_forever 不进特征']},
- {id:'train1',name:'第一次训练',cols:[4],what:'train 行：训练树模型，拟合信号 B 的 a、b。',
-  rules:['树答案：ln k = ln(truth_value / total_reviews)','树输入：除 p_post 外全部特征','五折交叉验证选模型和特征','B：ln h = a + b·ln t_med，h = H / 玩家数']},
- {id:'train2',name:'第二次训练与评估',cols:[5],what:'calib 行：拟合校准式 4 个系数，留一法评估。',
-  formula:'ln k_true = β·ln k_tree + γ₀ + δ·p_post + η·ln R',
-  rules:['留一法：每次留出一款，用其余拟合后预测它','指标：±30% 命中率、95% 区间覆盖率（Wilson 区间）','calib 的留一法预测写入 result_estimates']},
- {id:'freeze',name:'冻结',cols:[6],what:'用全部数据重拟合一次，保存后冻结。',
-  rules:['树、a、b：全部 train 行','β γ₀ δ η：全部 calib 行','σ_A、σ_B、μ_B、融合 σ：全部留一法残差','报告只引用留一法成绩']},
- {id:'predict',name:'预测',cols:[7,8],what:'信号 A、B → 融合 → 区间 → 标签。',
-  formula:'A    ln Ŝ_A = ln R + ln k_true\nB    Ŝ_B = H / h\n融合 ln Ŝ = (w_A·ln Ŝ_A + w_B·(ln Ŝ_B + μ_B)) / (w_A + w_B)，w = 1/σ²\n区间 [Ŝ·e^(−1.96σ), Ŝ·e^(1.96σ)]\n分歧 D = |ln Ŝ_A − (ln Ŝ_B + μ_B)|，τ = 0.5',
-  rules:['B 不可用时只用 A','只读冻结模型和参数'],
-  table:{head:['B','分歧','评测数','标签'],rows:[['有','D ≤ τ','≥ 500','高'],['有','D ≤ τ','< 500','中'],['有','D > τ','—','低'],['无','—','≥ 500','中'],['无','—','< 500','低']]}},
- {id:'show',name:'展示',cols:[9],what:'viz 只读 result 表出图；单款查询出结果页。',rules:['一条命令重新生成全部图']}
-];
-
-const N=[
-{id:'s_ars',col:0,y:70,kind:'src',title:'Ars 2018 玩家数表',kv:['arstechnica.com'],what:'Ars Technica 2018-07 公开的各游戏玩家数（数据来自 Steam 接口泄露）。现成表格，导入。',
- rules:['站点：arstechnica.com','截止日：2018-07-01','真值：玩家数，不是销量','用途：train 的真值']},
-{id:'s_truth',col:0,y:180,kind:'src',title:'近年销量真值表',kv:['人工核对，多来源'],what:'近年公开销量，人工筛选核对后整理成表，每款一条。只收录评测数足够、截止日不早于 2013-11 的游戏。现成表格，导入。',
- rules:['来源之一：gamalytic.com 文章《How to accurately estimate Steam sales》中的公开销量对照表','每条记录的出处存在 raw_truth.source_url','用途：calib 的真值']},
-{id:'s_app',col:0,y:310,kind:'src',title:'Steam 商店接口',kv:['store.steampowered.com'],what:'Steam 官方商店的 appdetails 接口，按 appid 返回游戏信息。',
- rules:['地址：store.steampowered.com/api/appdetails?appids=<appid>','返回：类型、发售日、是否免费、当前价格','只有当前价，没有历史价']},
-{id:'s_cnt',col:0,y:450,kind:'src',title:'Steam 评测接口 · 计数',kv:['store.steampowered.com'],what:'Steam 官方评测接口返回的汇总数（query_summary），只取计数，不翻页。',
- rules:['地址：store.steampowered.com/appreviews/<appid>?json=1','按日期范围限定在截止日前','口径：全部、好评、Steam 内购买、政策后、各语言']},
-{id:'s_smp',col:0,y:565,kind:'src',title:'Steam 评测接口 · 抽样',kv:['store.steampowered.com'],what:'同一评测接口返回的单条评测列表，只取少量。',
- rules:['地址：store.steampowered.com/appreviews/<appid>?json=1','取字段：评测时间、写评测时的时长、当前总时长','不是严格随机样本']},
-{id:'s_charts',col:0,y:670,kind:'src',title:'SteamCharts',kv:['steamcharts.com'],what:'第三方统计站点，每款游戏的逐月在线人数表。',
- rules:['地址：steamcharts.com/app/<appid>','取字段：月平均在线（Avg. Players）、月峰值','只用截止日所在月之前的整月']},
-{id:'s_price',col:0,y:775,kind:'src',title:'历史价格表',kv:['isthereanydeal.com','web.archive.org'],what:'早期探索版本已采集好的历史价格，导入。',
- rules:['IsThereAnyDeal（isthereanydeal.com）：价格历史','互联网档案馆（web.archive.org）：Steam 商店页历史快照中的价格']},
-{id:'s_cli',col:0,y:1000,kind:'src',title:'python -m query',kv:['本地命令'],what:'单款查询入口，输入 appid，截止日默认当天。',rules:['crawler → pipeline → analysis → viz','只预测，不重新拟合']},
-
-{id:'raw_ars',col:1,y:70,kind:'tbl',title:'raw_ars_players_2018',key:'appid',what:'Ars 玩家数表原样。',
- fields:[F('players','2018-07-01 玩家数',['samples'],{key:1}),F('appid','游戏编号',['samples']),F('title','游戏名',[],{flag:'none'}),F('fetched_at','导入时间',[],{flag:'none'})]},
-{id:'raw_truth',col:1,y:180,kind:'tbl',title:'raw_truth',key:'appid',what:'近年真值表原样。',
- fields:[F('sales','销量',['samples'],{key:1}),F('cutoff_date','销量公布日',['samples'],{key:1}),F('appid','游戏编号',['samples']),F('name','游戏名',[],{flag:'none'}),F('source_url','出处',[],{flag:'none'}),F('fetched_at','导入时间',[],{flag:'none'})]},
-{id:'raw_app',col:1,y:300,kind:'tbl',title:'raw_appdetails',key:'appid',what:'商店信息原样。',
- fields:[F('is_free','是否免费',['games'],{key:1}),F('release_date','发售日',['games'],{key:1}),F('genres','类型',['games'],{key:1}),F('app_type','游戏 / DLC / 软件',['games']),F('initial_price_usd','当前原价',['prices_c']),F('name','游戏名',['games']),F('fetched_at','采集时间',[],{flag:'none'})]},
-{id:'raw_cnt',col:1,y:450,kind:'tbl',title:'raw_review_counts',key:'(appid, cutoff_date, query)',what:'按截止日、按口径的评测数。',
- fields:[F('query','口径：全部 / 好评 / Steam 内购买 / 政策后 / 某语言',['samples'],{key:1}),F('count','条数',['samples'],{key:1}),F('cutoff_date','截止日'),F('fetched_at','采集时间',[],{flag:'none'})]},
-{id:'raw_smp',col:1,y:570,kind:'tbl',title:'raw_reviews',key:'(appid, cutoff_date, review_id)',what:'抽样评测。',
- fields:[F('playtime_at_review_min','写评测时的时长（分钟）',['samples'],{key:1}),F('created_at','评测日期',['games']),F('playtime_forever_min','采集当天的总时长',[],{flag:'none'}),F('review_id','评测编号'),F('fetched_at','采集时间',[],{flag:'none'})]},
-{id:'raw_charts',col:1,y:670,kind:'tbl',title:'raw_charts_monthly',key:'(appid, month)',what:'月度在线人数原样。',
- fields:[F('avg_players','月均同时在线',['charts_c'],{key:1}),F('month','YYYY-MM'),F('fetched_at','采集时间',[],{flag:'none'})]},
-{id:'raw_price',col:1,y:770,kind:'tbl',title:'raw_price_history',key:'(appid, date, source)',what:'历史价格原样，两个来源都存。',
- fields:[F('base_price_usd','原价',['prices_c'],{key:1}),F('discount_percent','折扣',['prices_c'],{key:1}),F('source','ITAD / 档案馆',['prices_c']),F('date','日期'),F('fetched_at','导入时间',[],{flag:'none'})]},
-{id:'raw_log',col:1,y:900,kind:'tbl',title:'raw_crawl_log',key:'(source, request_key)',what:'请求记录，不参与计算。',
- fields:[F('status','HTTP 状态 / 未收录 / 空结果',[],{key:1}),F('source','站点'),F('request_key','请求内容')]},
-
-{id:'games',col:2,y:310,kind:'tbl',title:'cleaned_games',key:'appid',what:'游戏级信息，剔除在此完成。',
- fields:[F('release_date','上架日',['samples'],{key:1}),F('genres','类型',['samples'],{key:1}),F('release_date_source','商店 / 首条评测'),F('name','游戏名',['page'])]},
-{id:'charts_c',col:2,y:670,kind:'tbl',title:'cleaned_charts_monthly',key:'(appid, month)',what:'清洗后的月度在线人数。',
- fields:[F('avg_players','c_m',['samples'],{key:1})]},
-{id:'prices_c',col:2,y:770,kind:'tbl',title:'cleaned_prices',key:'(appid, date)',what:'清洗后的价格序列。',
- fields:[F('base_price_usd','原价',['samples'],{key:1}),F('price_source','history / current',['samples'],{key:1}),F('discount_percent','折扣',['samples'])],
- formula:'实付价 = 原价 × (1 − 折扣)\navg_price_usd = 截止日前逐日实付价的平均',
- rules:['两来源冲突以 ITAD 为准，档案馆只补缺失日期']},
-{id:'logs',col:2,y:900,kind:'src',title:'data/logs/',what:'剔除与降级记录。',
- rules:['剔除：免费、非游戏、零评测、重复、上架晚于截止日','不进 train：评测数 < 500','calib 校验不通过：评测太少或截止日早于 2013-11']},
-
-{id:'samples',col:3,y:90,h:910,kind:'tbl',title:'cleaned_samples',key:'sample_id',what:'一行 = 一款游戏 + 一个截止日。analysis 只读此表。',
- fields:[
-  F('split','train / calib / query',['A1','A2','A3','A5'],{key:1}),
-  F('cutoff_date','train 2018-07-01；calib 公布日；query 当天',[],{key:1}),
-  F('truth_value','train 玩家数；calib 销量；query 空',['A1','A2','A3','figures'],{key:1}),
-  F('total_reviews','R，全部评测数',['A1','A3','A5'],{key:1}),
-  F('p_post','2019-11-01 起评测占比',['A3'],{key:1}),
-  F('playtime_median_hrs','t_med，评测时长中位数（小时）',['A1','A2'],{key:1}),
-  F('charts_total_hours','H，总游玩小时',['A2','A5'],{key:1}),
-  F('sample_id','样本编号',['A5']),F('appid','游戏编号'),
-  F('positive_rate','好评 / 全部',['A1']),F('steam_purchase_ratio','Steam 内购买 / 全部',['A1']),F('share_<语言>','某语言 / 全部',['A1']),
-  F('price_at_cutoff_usd','截止日原价',['A1']),F('frac_time_cut75','截止日前折扣 ≥ 75% 的时间占比',['A1']),F('avg_price_usd','截止日前按天平均的实付价格',['A1']),F('price_source','history / current'),
-  F('game_age_years','截止日时发售年数',['A1']),F('genre_<类型>','0 / 1，含 genre_indie',['A1']),
-  F('playtime_mean_hrs','评测时长均值',[],{flag:'none'}),F('sample_n','抽样条数，用于设定时长可靠性阈值')]},
-
-{id:'A1',col:4,y:150,kind:'step',title:'树模型',kv:['train 行','ln k','五折 CV'],what:'第一次训练：学 ln k。'},
-{id:'A2',col:4,y:330,kind:'step',title:'信号 B 换算',kv:['train 行','ln h = a + b·ln t_med'],what:'第一次训练：拟合 a、b。',
- formula:'ln h = a + b·ln t_med\nh = H / 玩家数'},
-{id:'A3',col:5,y:520,kind:'step',title:'校准 + 留一法',kv:['calib 行','β γ₀ δ η','σ、μ_B'],what:'第二次训练与评估。',
- formula:'ln k_true = β·ln k_tree + γ₀ + δ·p_post + η·ln R'},
-{id:'models',col:6,y:160,kind:'src',title:'data/models/',what:'树模型文件，冻结。'},
-{id:'params',col:6,y:320,kind:'tbl',title:'result_params',key:'name',kv:['a b','beta gamma0 delta eta','sigma_* mu_b'],what:'冻结参数。',
- fields:[F('name','参数名',[],{key:1}),F('value','参数值',['A5'],{key:1})],
- table:{head:['name','含义','来自'],rows:[['a, b','信号 B 时长换算','第一次训练'],['beta gamma0 delta eta','校准式 4 个系数','第二次训练'],['sigma_a sigma_b','两路误差，融合权重 1/σ²','留一法残差'],['mu_b','信号 B 偏差修正','留一法残差'],['sigma_fused','两路都有时的区间 σ','留一法残差']]}},
-{id:'featimp',col:6,y:480,kind:'tbl',title:'result_feature_importance',key:'feature',what:'树模型特征重要性。',
- fields:[F('feature','特征名',[],{key:1}),F('importance','重要性',['figures'],{key:1})]},
-{id:'A5',col:7,y:720,kind:'step',title:'估算',kv:['A · B · 融合','区间 · 标签'],what:'对一个样本出估计。'},
-{id:'estimates',col:8,y:560,kind:'tbl',title:'result_estimates',key:'sample_id',what:'每个样本的估计。calib 存留一法预测。',
- fields:[F('ln_fused','融合对数销量',['figures','page'],{key:1}),F('lower, upper','95% 区间',['figures','page'],{key:1}),F('label','高 / 中 / 低',['figures','page'],{key:1}),
-  F('ln_a','信号 A',['figures']),F('ln_b','信号 B',['figures']),F('b_unavailable_reason','B 不可用原因',['page']),F('sigma','σ'),F('divergence','D',['page'])],
- rules:['calib：留一法预测','query：单款估计','train：不写入']},
-{id:'figures',col:9,y:430,kind:'src',title:'figures/',what:'评估图表。',
- table:{head:['图','内容'],rows:[['k 的分布','直方图，对数轴'],['评测数与销量','对数散点'],['政策前后 k','按年 k 中位数'],['估计与真值','A、B、融合，±30% 带'],['命中率对比','带 Wilson 区间'],['预测区间','覆盖率'],['置信标签','各档命中率'],['特征重要性','排序']]}},
-{id:'page',col:9,y:720,kind:'src',title:'单款查询页',what:'A、B、融合、区间、标签。'}
-];
-
-const E=[
-['s_ars','raw_ars','T','原样导入'],['s_truth','raw_truth','C','原样导入'],['s_app','raw_app','TCQ','按 appid 采集'],['s_cnt','raw_cnt','TCQ','按截止日、口径计数'],
-['s_smp','raw_smp','TCQ','抽样单条评测'],['s_charts','raw_charts','TCQ','逐月采集'],['s_price','raw_price','TC','原样导入'],
-['s_cli','s_app','Q','触发采集',{dash:1,side:'L',off:22}],['s_cli','s_cnt','Q','触发采集',{dash:1,side:'L',off:30}],
-['s_cli','s_smp','Q','触发采集',{dash:1,side:'L',off:38}],['s_cli','s_charts','Q','触发采集',{dash:1,side:'L',off:46}],
-['raw_app','games','TCQ','剔除免费 / 非游戏；取发售日、类型'],['raw_smp','games','TCQ','抢先体验：首条评测日期作上架日'],
-['raw_app','prices_c','TCQ','无历史价时当前原价兜底'],['raw_price','prices_c','TC','两来源合并，冲突以 ITAD 为准'],['raw_charts','charts_c','TCQ','只留月均'],
-['games','logs','TCQ','剔除记录',{dash:1,side:'R',off:30}],
-['raw_ars','samples','T','train 行，真值 = 玩家数'],['raw_truth','samples','C','calib 行，真值 = 销量'],
-['raw_cnt','samples','TCQ','各口径 ÷ 全部 → 好评率、p_post 等'],['raw_smp','samples','TCQ','时长中位数 → t_med'],
-['games','samples','TCQ','截止日 − 上架日 → 年龄；类型 → genre_*'],['charts_c','samples','TCQ','Σ 月均 × 当月小时 → H'],['prices_c','samples','TCQ','截止日原价、深度折扣占比、平均实付价格'],
-['s_cli','samples','Q','query 行'],
-['samples','A1','T','train 行：特征（除 p_post）+ 真值'],['samples','A2','T','train 行：H、t_med、玩家数'],['samples','A3','C','calib 行：R、p_post、销量'],
-['A1','A3','C','每行的 ln k_tree'],['A2','A3','C','每行的 Ŝ_B'],
-['A1','models','T','全量拟合后保存'],['A1','featimp','T','特征重要性'],['A2','params','T','a、b'],['A3','params','C','β γ₀ δ η；σ、μ_B'],
-['A3','estimates','C','calib 行的留一法预测'],
-['samples','A5','Q','query 行'],['models','A5','Q','读冻结的树'],['params','A5','Q','读冻结参数'],['A5','estimates','Q','写入估计'],
-['estimates','figures','C','对照真值算命中率、覆盖率'],['featimp','figures','T','排序图'],['estimates','page','Q','单款结果']
-].map(([from,to,tags,label,o],i)=>({i,from,to,tags,label,...(o||{})}));
-
-/* 几何 */
-const W=176,STEP=250,X0=110,NCOL=10;
-const byId=Object.fromEntries(N.map(n=>[n.id,n]));
-N.forEach(n=>{
-  n.stage=STAGES.find(s=>s.cols.includes(n.col)).id;
-  n.keys=n.kv||(n.fields||[]).filter(f=>f.key).map(f=>f.f);
-  if(n.id!=='samples') n.keys=n.keys.slice(0,3);
-  if(!n.h) n.h=n.keys.length?40+18*n.keys.length:34;
+const D={"s_ars":{"t":"Ars Technica 玩家数表","d":"2018-07-01 公布的各游戏玩家数。CSV 一次导入。","box":"s_ars","st":"数据源"},"s_gam":{"t":"Gamalytic 销量对照表","d":"博客文章里的公开销量对照表，118 行，2014-06 至 2023-04，每行带出处。","box":"s_gam","st":"数据源"},"s_man":{"t":"手填真值表","d":"`data/source/sales_truth_manual.csv`，人工核对的零散来源。现为空。","box":"s_man","st":"数据源"},"s_q":{"t":"查询的 appid","d":"`python -m query <appid>` 的输入。截止日为查询当天（UTC）。","box":"s_q","st":"数据源"},"s_store":{"t":"Steam 商店","d":"`GetItems` 接口取商店信息，`GetTagList` 接口取标签名。只有当前价格。","box":"s_store","st":"数据源"},"s_rev":{"t":"Steam 评测","d":"`GetAppReviews` 接口。计数：截止日前各口径的精确值。抽样：截止日前分 5 段，每段取最新的至多 100 条。","box":"s_rev","st":"数据源"},"s_itad":{"t":"ITAD 价格历史","d":"IsThereAnyDeal 接口的价格变动记录，只取 Steam 商店、美国区。","box":"s_itad","st":"数据源"},"s_charts":{"t":"SteamCharts 在线人数","d":"第三方统计站的网页，每款一页，月度数据自 2012-07 起。","box":"s_charts","st":"数据源"},"raw_ars_players_2018":{"d":"Ars 表原样导入，一款一行。","f":[["appid","",1],["title","游戏名",0],["players","玩家数",0],["fetched_at","导入时刻",0]],"t":"raw_ars_players_2018","box":"b_raw_ars_players_2018","st":"原始表 · crawler"},"raw_truth_gamalytic":{"d":"一行一个公布的销量。每次整表替换。","f":[["appid","",1],["report_date","",1],["title","游戏名",0],["units_sold","公布的销量",0],["source_url","出处",0],["fetched_at","采集时刻",0]],"t":"raw_truth_gamalytic","box":"b_raw_truth_gamalytic","st":"原始表 · crawler"},"raw_truth_manual":{"d":"手填表的导入，与 CSV 保持一致。","f":[["appid","",1],["report_date","",1],["title","游戏名",0],["units_sold","公布的销量",0],["source_url","出处",0],["quote","原话",0],["note","备注",0],["fetched_at","导入时刻",0]],"t":"raw_truth_manual","box":"b_raw_truth_manual","st":"原始表 · crawler"},"raw_query_targets":{"d":"查一次记一行。","f":[["appid","",1],["cutoff_date","",1],["queried_at","查询时刻",0]],"t":"raw_query_targets","box":"b_raw_query_targets","st":"原始表 · crawler"},"raw_store_items":{"d":"一款一行。","f":[["appid","",1],["name","游戏名",0],["app_type","类型代码，0 为游戏",0],["is_free","是否免费",0],["release_ts","上架时刻",0],["original_release_ts","最早上架时刻",0],["is_early_access","采集当天是否抢先体验",0],["initial_price_usd","当前原价",0],["fetched_at","采集时刻",0]],"t":"raw_store_items","box":"b_raw_store_items","st":"原始表 · crawler"},"raw_store_tags":{"d":"一款游戏的一个标签一行，每款至多 20 个。","f":[["appid","",1],["tagid","",1],["weight","权重",0],["position","按权重排第几",0]],"t":"raw_store_tags","box":"b_raw_store_items","st":"原始表 · crawler"},"raw_tag_names":{"d":"标签编号对应的名称。","f":[["tagid","",1],["name","标签英文名",0]],"t":"raw_tag_names","box":"b_raw_store_items","st":"原始表 · crawler"},"raw_review_windows":{"d":"截止日前分 5 段，一段一行。","f":[["appid","",1],["cutoff_date","",1],["window","",1],["start_ts","这一段的起始时刻",0],["end_ts","这一段的结束时刻",0],["total","段内评测总数",0],["fetched_at","采集时刻",0]],"t":"raw_review_windows","box":"b_raw_review_windows","st":"原始表 · crawler"},"raw_reviews":{"d":"抽到的评测，一条一行。不存正文。","f":[["appid","",1],["cutoff_date","",1],["review_id","",1],["window","属于第几段",0],["created_at","写评测的时刻",0],["playtime_at_review_min","写评测时的游玩分钟",0],["playtime_forever_min","采集当天的总游玩分钟，只存档",0]],"t":"raw_reviews","box":"b_raw_review_windows","st":"原始表 · crawler"},"raw_review_counts":{"d":"一次请求一行，每款 15 个口径。","f":[["appid","",1],["cutoff_date","",1],["query","",1],["total","评测数",0],["positive","好评数",0],["fetched_at","采集时刻",0]],"t":"raw_review_counts","box":"b_raw_review_counts","st":"原始表 · crawler"},"raw_itad_ids":{"d":"`appid` 对应的 ITAD 编号。","f":[["appid","",1],["itad_id","ITAD 编号，未收录为空",0],["fetched_at","采集时刻",0]],"t":"raw_itad_ids","box":"b_raw_itad_ids","st":"原始表 · crawler"},"raw_price_history":{"d":"一次价格变动一行，存全部历史。","f":[["appid","",1],["country","",1],["changed_at","",1],["regular","",1],["price","",1],["currency","币种",0],["cut","折扣百分比",0],["fetched_at","采集时刻",0]],"t":"raw_price_history","box":"b_raw_itad_ids","st":"原始表 · crawler"},"raw_charts_monthly":{"d":"一个整月一行，存全部历史。","f":[["appid","",1],["month","",1],["avg_players","月平均同时在线",0],["peak_players","月峰值，只存档",0],["fetched_at","采集时刻",0]],"t":"raw_charts_monthly","box":"b_raw_charts_monthly","st":"原始表 · crawler"},"raw_crawl_log":{"d":"每个请求的处理结果，续传时据此跳过。","f":[["source","",1],["request_key","",1],["status","处理结果",0],["fetched_at","请求时刻",0]],"t":"raw_crawl_log","box":"raw_crawl_log","st":"原始表 · crawler"},"cleaned_sales_truth":{"d":"两张真值表并成一张，只合并不取舍。","f":[["source","",1],["appid","",1],["report_date","",1],["title","游戏名",0],["units_sold","公布的销量",0],["source_url","出处",0]],"t":"cleaned_sales_truth","box":"cleaned_sales_truth","st":"清洗表 · pipeline"},"cleaned_games":{"d":"只含游戏，一款一行。","f":[["appid","",1],["name","游戏名",0],["release_date","上架日：商店上架、最早上架、最早评测三者取最早",0],["release_date_source","取的是三者中哪个",0],["tags","标签名，按权重排序",0]],"t":"cleaned_games","box":"cleaned_games","st":"清洗表 · pipeline"},"cleaned_review_counts":{"d":"15 个口径合成一行，存条数。","f":[["appid","",1],["cutoff_date","",1],["total_reviews","评测数",0],["positive_reviews","好评数",0],["steam_purchase_reviews","Steam 内购买的评测数",0],["reviews_<语言> × 13","各语言的评测数",0]],"t":"cleaned_review_counts","box":"cleaned_review_counts","st":"清洗表 · pipeline"},"cleaned_prices":{"d":"变动点变成时间段，存完整历史。","f":[["appid","",1],["started_at","",1],["regular","",1],["price","",1],["ended_at","下一次变动的时刻",0],["cut","折扣百分比",0],["days","持续天数",0]],"t":"cleaned_prices","box":"cleaned_prices","st":"清洗表 · pipeline"},"cleaned_charts_monthly":{"d":"月平均在线换算成当月玩家小时。","f":[["appid","",1],["month","",1],["avg_players","月平均同时在线",0],["days","当月天数",0],["player_hours","avg_players × days × 24",0]],"t":"cleaned_charts_monthly","box":"cleaned_charts_monthly","st":"清洗表 · pipeline"},"cleaned_samples":{"d":"一个样本一行：一款游戏在一个截止日的真值和特征。","f":[["sample_id","",1],["appid","",0],["cutoff_date","截止日",0],["split","train / calib / query",0],["truth_value","真值，query 为空",0],["total_reviews","评测数",0],["positive_rate","好评率",0],["steam_purchase_ratio","Steam 内购买占比",0],["share_<语言> × 14","各语言占比，含 share_other",0],["playtime_median_hrs","评测者时长中位数（小时）",0],["sample_n","抽样条数，不进模型",0],["game_age_years","截止日减上架日（年）",0],["tags","标签名，按权重排序",0],["price_at_cutoff_usd","截止日原价",0],["avg_price_usd","截止日前按天平均的实付价",0],["frac_time_cut25 / 50 / 75","折扣不低于 25%、50%、75% 的时间占比",0],["charts_total_hours","总游玩小时",0]],"t":"cleaned_samples","box":"samples","st":"样本表 · pipeline.samples"},"train":{"t":"train","st":"样本表 · 训练集","d":"11716 行。截止日 2018-07-01，真值为 Ars 玩家数。","box":"samples"},"calib":{"t":"calib","st":"样本表 · 校准集","d":"117 行，116 款。截止日为公布日期，真值为公布的销量。","box":"samples"},"query":{"t":"query","st":"样本表 · 查询","d":"截止日为查询当天，无真值。特征与训练、校准走同一段代码。","box":"samples"},"a_cmp":{"t":"对照与比较","fl":"模块","d":"树模型之外的对照，以及参数和特征的比较。","f":[["baselines","固定倍数、线性回归",0],["tree_params","树模型参数比较",0],["feature_importance","特征按组置换重要性",0]],"box":"a_cmp","st":"分析 · analysis"},"a_sa":{"t":"信号 A：树模型","fl":"模块","d":"销量 = 评测数 × k。树模型由特征估 ln k。","f":[["signal_a","固定倍数、线性回归、树模型的五折交叉验证",0]],"box":"a_sa","st":"分析 · analysis"},"a_sb":{"t":"信号 B：在线人数","fl":"模块","d":"玩家数 = 总游玩小时 ÷ 人均游玩小时。人均小时由评测者时长拟合。","f":[["signal_b","五折成绩，与 A 在同一批游戏上比较",0]],"box":"a_sb","st":"分析 · analysis"},"a_fu":{"t":"融合","fl":"模块","d":"两路在对数上加权，A 的占比按评测数分 5 档。没有 B 时只用 A。","f":[["fusion","各档占比和五折成绩",0]],"box":"a_fu","st":"分析 · analysis"},"a_ca":{"t":"校准与冻结","fl":"模块","d":"信号 A 加截距、缩放和年龄项，信号 B 加平移。留一法评估。","f":[["calibration","留一法成绩、区间倍数、冻结",0]],"box":"a_ca","st":"分析 · analysis"},"result_cv_scores":{"d":"交叉验证和留一法的成绩，一种做法一行。","f":[["experiment","",1],["variant","",1],["n_samples","款数",0],["rmse","ln k 的均方根误差",0],["hit_rate","±30% 命中率",0]],"t":"result_cv_scores","box":"b_result","st":"结果"},"result_cv_predictions":{"d":"每款游戏的预测，供画误差分布。","f":[["experiment","",1],["variant","",1],["sample_id","",1],["true_ln_k","真值",0],["predicted_ln_k","预测值",0]],"t":"result_cv_predictions","box":"b_result","st":"结果"},"frozen":{"t":"models/frozen.joblib","fl":"内容","d":"全量拟合的结果。查询只读，不再拟合。","f":[["tree","树模型",0],["tag_list","标签清单",0],["a_calibration","信号 A 的校准系数 γ₀、β、c",0],["b_line","信号 B 的 a、b",0],["b_shift","信号 B 的平移",0],["a_share_by_bin","各评测数档的 A 占比",0],["interval_ratios","80% 区间的上下倍数",0]],"box":"frozen","st":"结果"},"figs":{"t":"图表","fl":"文件","d":"14 张，由 `python -m viz.<脚本>` 生成到 `figures/`。","f":[["reviews_vs_players","评测数与真实玩家数",0],["k_by_reviews","按评测数分档的 k 波动",0],["method_comparison","三种方法对比",0],["tree_params","树模型参数比较",0],["feature_importance","特征重要性",0],["signal_b_fit","信号 B 拟合",0],["signal_b_comparison","信号 A、B 对比",0],["fusion_comparison × 2","融合对比",0],["fusion_by_reviews × 2","按评测数分档的融合",0],["calibration_comparison × 2","校准对比",0],["calibration_age","倍数随游戏年龄的变化",0]],"box":"figs","st":"输出"},"out_q":{"t":"单款查询","fl":"输出","d":"`python -m query <appid>`：采这一款，重跑清洗，套冻结的公式。","f":[["估计销量","评测数 × k",0],["80% 预测区间","有 B：0.59 至 1.73 倍；无 B：0.42 至 3.32 倍",0],["置信标签","高 / 中 / 低，按两路分歧和评测数",0]],"box":"out_q","st":"输出"}}, BOX={"b_raw_ars_players_2018":["raw_ars_players_2018"],"s_ars":["s_ars"],"b_raw_truth_gamalytic":["raw_truth_gamalytic"],"s_gam":["s_gam"],"b_raw_truth_manual":["raw_truth_manual"],"s_man":["s_man"],"b_raw_query_targets":["raw_query_targets"],"s_q":["s_q"],"b_raw_store_items":["raw_store_items","raw_store_tags","raw_tag_names"],"s_store":["s_store"],"cleaned_games":["cleaned_games"],"b_raw_review_windows":["raw_review_windows","raw_reviews"],"s_rev":["s_rev"],"b_raw_review_counts":["raw_review_counts"],"cleaned_review_counts":["cleaned_review_counts"],"b_raw_itad_ids":["raw_itad_ids","raw_price_history"],"s_itad":["s_itad"],"cleaned_prices":["cleaned_prices"],"b_raw_charts_monthly":["raw_charts_monthly"],"s_charts":["s_charts"],"cleaned_charts_monthly":["cleaned_charts_monthly"],"cleaned_sales_truth":["cleaned_sales_truth"],"raw_crawl_log":["raw_crawl_log"],"samples":["cleaned_samples"],"a_cmp":["a_cmp"],"a_sa":["a_sa"],"a_sb":["a_sb"],"a_fu":["a_fu"],"a_ca":["a_ca"],"b_result":["result_cv_scores","result_cv_predictions"],"frozen":["frozen"],"figs":["figs"],"out_q":["out_q"]};
+const svg=document.querySelector('svg'), dock=document.getElementById('dock');
+const edges=[...svg.querySelectorAll('.edge')], nodes=[...svg.querySelectorAll('.node')], rows=[...svg.querySelectorAll('.row')];
+const esc=s=>s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const fmt=s=>esc(s).replace(/`([^`]+)`/g,'<code>$1</code>');
+const isCn=s=>/[一-鿿]/.test(s);
+function clear(){svg.classList.remove('focus');[...edges,...nodes,...rows].forEach(e=>e.classList.remove('on','sel'));dock.innerHTML='';dock.classList.add('idle')}
+function light(test){
+  const lit=new Set();
+  edges.forEach(e=>{const o=test(e);e.classList.toggle('on',o);if(o){lit.add(e.dataset.from);lit.add(e.dataset.to)}});
+  nodes.forEach(n=>n.classList.toggle('on',lit.has(n.dataset.box)));
+  svg.classList.add('focus');
+}
+function rel(label,ids){
+  if(!ids.length)return'';
+  return `<span>${label}</span><div>${ids.map(i=>`<button data-go="${i}"${isCn(D[i].t)?' class="cn"':''}>${esc(D[i].t)}</button>`).join('')}</div>`;
+}
+function show(id){
+  const d=D[id], row=svg.querySelector(`.row[data-id="${id}"]`), path=row.dataset.path;
+  rows.forEach(r=>r.classList.toggle('sel',r===row));
+  nodes.forEach(n=>n.classList.toggle('sel',n.dataset.box===d.box&&!row.classList.contains('chip')&&!row.querySelector('.frame')));
+  if(path) light(e=>e.dataset.tags.includes(path));
+  else light(e=>e.dataset.from===d.box||e.dataset.to===d.box);
+  svg.querySelector(`.node[data-box="${d.box}"]`).classList.add('on');
+  const up=[],down=[];
+  if(!path) edges.forEach(e=>{
+    if(e.dataset.to===d.box) BOX[e.dataset.from].forEach(i=>up.includes(i)||up.push(i));
+    if(e.dataset.from===d.box) BOX[e.dataset.to].forEach(i=>down.includes(i)||down.push(i));
+  });
+  const r=rel('上游',up)+rel('下游',down);
+  const f=d.f?`<div><p class="fl">${d.fl||'字段'}</p><ul class="fields">${d.f.map(([k,v,pk])=>`<li><span class="k${pk?' pk':''}${isCn(k)&&!/[a-z_]{3}/.test(k)?' cn':''}">${esc(k)}</span><span class="v">${pk?'主键':esc(v)}</span></li>`).join('')}</ul></div>`:'';
+  dock.classList.remove('idle');dock.innerHTML=`<div><p class="stage">${esc(d.st)}</p><h2${isCn(d.t)?'':' class="mono"'}>${esc(d.t)}</h2><p>${fmt(d.d)}</p>${r?`<div class="rel">${r}</div>`:''}</div>${f}`;
+}
+rows.forEach(r=>{
+  const go=ev=>{ev.stopPropagation();r.classList.contains('sel')?clear():show(r.dataset.id)};
+  r.addEventListener('click',go);
+  r.addEventListener('keydown',ev=>{if(ev.key==='Enter'||ev.key===' '){ev.preventDefault();go(ev)}});
 });
-const nx=n=>X0+n.col*STEP;
-const anchorY=(n,o)=>n.h>200?Math.max(n.y+30,Math.min(n.y+n.h-18,o)):n.y+n.h/2;
-const NS='http://www.w3.org/2000/svg';
-const svgW=X0+(NCOL-1)*STEP+W+50, svgH=1080;
-const svg=document.createElementNS(NS,'svg');
-svg.setAttribute('viewBox',`0 0 ${svgW} ${svgH}`);svg.setAttribute('width',svgW);svg.setAttribute('height',svgH);
-svg.setAttribute('role','img');svg.setAttribute('aria-label','数据流图');
-const el=(t,a,p)=>{const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);if(p)p.appendChild(e);return e};
-const txt=(p,a,s)=>{const t=el('text',a,p);t.textContent=s;return t};
-const defs=el('defs',{},svg);
-const mk=el('marker',{id:'ah',viewBox:'0 0 10 10',refX:9,refY:5,markerWidth:7,markerHeight:7,orient:'auto-start-reverse',markerUnits:'userSpaceOnUse'},defs);
-el('path',{d:'M0,0 L10,5 L0,10 z',style:'fill:#8c959f'},mk);
-
-const gB=el('g',{},svg);
-STAGES.forEach((s,i)=>{
-  s.x1=X0+s.cols[0]*STEP-24; s.x2=X0+s.cols[s.cols.length-1]*STEP+W+24;
-  s.rect=el('rect',{x:s.x1,y:0,width:s.x2-s.x1,height:svgH,class:'band'},gB);
-  s.lbl=txt(gB,{x:s.x1+12,y:32,class:'bandlbl'},`${i+1} ${s.name}`);
-});
-const gE=el('g',{},svg), gN=el('g',{},svg), gL=el('g',{},svg);
-E.forEach(e=>{
-  const a=byId[e.from],b=byId[e.to],am=a.y+a.h/2,bm=b.y+b.h/2;let d,lx,ly,anc='middle';
-  if(a.col===b.col){const L=e.side==='L',off=e.off||24,x=L?nx(a):nx(a)+W,s=L?-1:1;d=`M${x},${am} C${x+s*off},${am} ${x+s*off},${bm} ${x-s*2},${bm}`;
-    lx=x+s*(off*.75+4);ly=(am+bm)/2;anc=L?'end':'start'}
-  else{const y1=anchorY(a,bm),y2=anchorY(b,y1),x1=nx(a)+W,x2=nx(b)-3,cx=(x1+x2)/2;d=`M${x1},${y1} C${cx},${y1} ${cx},${y2} ${x2},${y2}`;
-    if(b.col-a.col>1){lx=x2-10;ly=y2-7;anc='end'}else{lx=cx;ly=(y1+y2)/2-7}}
-  const cls=['edge'];if(e.tags.length===1)cls.push(e.tags);if(e.dash)cls.push('dash');
-  const g=el('g',{class:cls.join(' ')},gE);
-  el('path',{d,class:'vis','marker-end':'url(#ah)'},g);
-  const hit=el('path',{d,class:'hit'},g);
-  el('title',{},hit).textContent=`${a.title} → ${b.title}：${e.label}`;
-  e.t=txt(gL,{x:lx,y:ly,'text-anchor':anc,class:'lbl '+(e.tags.length===1?e.tags:'')},e.label);
-  e.g=g;
-  hit.addEventListener('mouseenter',()=>paint([e.i]));hit.addEventListener('mouseleave',()=>paint(edgesOn()));
-  hit.addEventListener('click',ev=>{ev.stopPropagation();state.edge=state.edge===e.i?null:e.i;state.node=null;render()});
-});
-N.forEach(n=>{
-  const x=nx(n);
-  const g=el('g',{class:`node ${n.kind}`,tabindex:0,role:'button','aria-label':n.title},gN);
-  el('rect',{x,y:n.y,width:W,height:n.h,rx:6,class:'box'},g);
-  const mono=n.kind==='tbl'||(/^[a-z]/.test(n.title)&&n.kind!=='step');
-  const t=txt(g,{x:x+11,y:n.y+22,class:'t'+(mono?' mono':'')},n.title);
-  if(mono&&n.title.length>21)t.style.fontSize='11px';
-  if(n.id==='samples'){
-    let yy=n.y+42;
-    Object.values(SPLIT).forEach(v=>{
-      el('rect',{x:x+10,y:yy,width:W-20,height:26,rx:4,style:`fill:var(--bg);stroke:var(--${v.name})`},g);
-      txt(g,{x:x+20,y:yy+18,class:'k',style:`fill:var(--${v.name});font-weight:600`},v.name);
-      yy+=34;
-    });
-    yy+=6;n.keys.forEach(k=>{yy+=20;txt(g,{x:x+14,y:yy,class:'k'},k)});
-  }else n.keys.forEach((k,i)=>txt(g,{x:x+11,y:n.y+46+i*18,class:'k'},k));
-  n.g=g;
-  const pick=ev=>{ev.stopPropagation();showNode(n.id)};
-  g.addEventListener('click',pick);
-  g.addEventListener('keydown',ev=>{if(ev.key==='Enter'||ev.key===' '){ev.preventDefault();pick(ev)}});
-});
-const board=document.getElementById('board');board.appendChild(svg);
-
-/* 状态 */
-const state={stage:0,node:null,path:'',edge:null};
-const edgesOn=()=>state.edge!=null?[state.edge]:state.node?E.filter(e=>e.from===state.node||e.to===state.node).map(e=>e.i):state.path?E.filter(e=>e.tags.includes(state.path)).map(e=>e.i):null;
-function paint(list){
-  const on=list?new Set(list):null,lit=new Set();
-  E.forEach(e=>{const o=on&&on.has(e.i);e.g.classList.toggle('on',!!o);e.t.classList.toggle('show',!!o);e.g.classList.toggle('dim',!!on&&!o);if(o){lit.add(e.from);lit.add(e.to)}});
-  if(state.node)lit.add(state.node);
-  N.forEach(n=>{n.g.classList.toggle('dim',!!on&&!lit.has(n.id));n.g.classList.toggle('sel',n.id===state.node)});
-  STAGES.forEach((s,i)=>{s.rect.classList.toggle('cur',i===state.stage);s.lbl.classList.toggle('cur',i===state.stage)});
-}
-
-/* 详情 */
-const panel=document.getElementById('panel');
-const flagH=f=>f==='none'?'<span class="flag none">只存档</span>':'';
-const tableH=t=>`<table class="mini"><thead><tr>${t.head.map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>${t.rows.map(r=>`<tr>${r.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
-const chip=id=>`<button type="button" class="chip" data-go="${id}">${byId[id].title}</button>`;
-const rulesH=r=>`<ul class="rules">${r.map(x=>`<li>${x}</li>`).join('')}</ul>`;
-const fieldH=f=>`<div class="fld"><div><span class="fn">${f.f}</span>${flagH(f.flag)}</div><div>${f.m}</div>${f.to.length?`<div class="chips">${f.to.map(chip).join('')}</div>`:''}</div>`;
-function stageH(i){
-  const s=STAGES[i];
-  let h=`<h2>${i+1} ${s.name}</h2><p>${s.what}</p>`;
-  if(s.formula)h+=`<div class="formula">${s.formula}</div>`;
-  if(s.table)h+=tableH(s.table);
-  h+=rulesH(s.rules);
-  h+=`<div class="chips">${N.filter(n=>n.stage===s.id).map(n=>chip(n.id)).join('')}</div>`;
-  h+=`<div class="pager">${i>0?`<button type="button" class="back" data-stage="${i-1}">← ${STAGES[i-1].name}</button>`:'<span></span>'}${i<STAGES.length-1?`<button type="button" class="back" data-stage="${i+1}">${STAGES[i+1].name} →</button>`:''}</div>`;
-  return h;
-}
-function nodeH(n){
-  const si=STAGES.findIndex(s=>s.id===n.stage), ins=E.filter(e=>e.to===n.id), outs=E.filter(e=>e.from===n.id);
-  let h=`<button type="button" class="back" data-stage="${si}">← ${si+1} ${STAGES[si].name}</button>`;
-  h+=`<div><h2 class="${n.kind==='tbl'?'mono':''}">${n.title}</h2>${n.key?`<div>主键 <code>${n.key}</code></div>`:''}</div><p>${n.what}</p>`;
-  if(n.formula)h+=`<div class="formula">${n.formula}</div>`;
-  if(n.id==='A5'){const s=STAGES[6];h+=`<div class="formula">${s.formula}</div>${tableH(s.table)}`}
-  if(n.fields){
-    const k=n.fields.filter(f=>f.key),r=n.fields.filter(f=>!f.key);
-    h+=`<div>${k.map(fieldH).join('')}</div>`;
-    if(r.length)h+=`<details class="more"><summary>其余 ${r.length} 个字段</summary><div>${r.map(fieldH).join('')}</div></details>`;
-  }
-  if(n.table)h+=tableH(n.table);
-  if(n.rules)h+=rulesH(n.rules);
-  if(ins.length)h+=`<div><h3>来自</h3><div class="links">${ins.map(e=>`<div>${chip(e.from)} ${e.label}</div>`).join('')}</div></div>`;
-  if(outs.length)h+=`<div><h3>去往</h3><div class="links">${outs.map(e=>`<div>${chip(e.to)} ${e.label}</div>`).join('')}</div></div>`;
-  return h;
-}
-function render(){
-  panel.innerHTML=state.node?nodeH(byId[state.node]):stageH(state.stage);panel.scrollTop=0;
-  document.querySelectorAll('.st').forEach((b,i)=>{if(i===state.stage)b.setAttribute('aria-current','step');else b.removeAttribute('aria-current')});
-  paint(edgesOn());
-}
-function showStage(i){
-  state.stage=Math.max(0,Math.min(STAGES.length-1,i));state.node=null;state.edge=null;render();
-  const s=STAGES[state.stage];board.scrollTo({left:Math.max(0,Math.min(s.x1-20,(s.x1+s.x2)/2-board.clientWidth/2))});
-}
-function showNode(id){
-  if(state.node===id){state.node=null;render();return}
-  const n=byId[id];state.node=id;state.edge=null;state.stage=STAGES.findIndex(s=>s.id===n.stage);render();
-  const x=nx(n),vw=board.clientWidth,vh=board.clientHeight;
-  if(x<board.scrollLeft||x+W>board.scrollLeft+vw)board.scrollTo({left:Math.max(0,x-vw/2+W/2)});
-  if(n.y<board.scrollTop||n.y+60>board.scrollTop+vh)board.scrollTo({top:Math.max(0,n.y-80)});
-}
-panel.addEventListener('click',ev=>{const g=ev.target.closest('[data-go]');if(g){showNode(g.dataset.go);return}const s=ev.target.closest('[data-stage]');if(s)showStage(+s.dataset.stage)});
-panel.addEventListener('mouseover',ev=>{const g=ev.target.closest('[data-go]');if(!g||!state.node)return;const a=state.node,b=g.dataset.go;paint(E.filter(e=>(e.from===a&&e.to===b)||(e.from===b&&e.to===a)).map(e=>e.i))});
-panel.addEventListener('mouseout',ev=>{if(ev.target.closest('[data-go]'))paint(edgesOn())});
-board.addEventListener('click',()=>{if(state.node||state.edge!=null){state.node=null;state.edge=null;render()}});
-
-document.getElementById('tabs').innerHTML=STAGES.map((s,i)=>`<button type="button" class="st" data-i="${i}">${i+1} ${s.name}</button>`).join('');
-document.querySelectorAll('.st').forEach(b=>b.addEventListener('click',()=>showStage(+b.dataset.i)));
-document.querySelectorAll('[data-path]').forEach(b=>b.addEventListener('click',()=>{
-  state.path=state.path===b.dataset.path?'':b.dataset.path;state.node=null;state.edge=null;
-  document.querySelectorAll('[data-path]').forEach(x=>x.setAttribute('aria-pressed',x.dataset.path===state.path?'true':'false'));render();
-}));
-document.getElementById('legend').innerHTML=Object.values(SPLIT).map(v=>`<span><b style="color:var(--${v.name})">${v.name}</b> ${v.d}</span>`).join('');
-
-
-document.getElementById('appx').innerHTML=N.filter(n=>n.fields).map(n=>`<details><summary>${n.title}</summary><div class="body"><table class="mini"><thead><tr><th>字段</th><th>含义</th><th>去往</th></tr></thead><tbody>${n.fields.map(f=>`<tr><td class="mono">${f.f}</td><td>${f.m}${flagH(f.flag)}</td><td>${f.to.map(id=>byId[id].title).join('、')}</td></tr>`).join('')}</tbody></table></div></details>`).join('');
-
-render();
+svg.addEventListener('click',clear);
+dock.addEventListener('click',ev=>{const b=ev.target.closest('[data-go]');if(b)show(b.dataset.go)});
+document.addEventListener('keydown',ev=>{if(ev.key==='Escape')clear()});
+clear();
 </script>
+</body>
+</html>
