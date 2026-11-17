@@ -223,43 +223,6 @@ def crawl_store_items(conn, appids):
         )
 
 
-def backfill_original_release(conn):
-    """给已经采过的游戏补上 original_release_ts 这一列，别的列一律不动。
-
-    已采的游戏在采集日志里都有定论，正常重跑会跳过它们，所以单独写这个函数：
-    把表里已有的游戏重新请求一遍，只更新这一列，fetched_at 也不改。
-    一共只有几十次请求，所以不记采集日志、不做续传：中途失败就整个重跑，
-    UPDATE 重复执行结果一样。
-    """
-    ensure_tables(conn)
-    appids = [appid for (appid,) in conn.execute("SELECT appid FROM raw_store_items ORDER BY appid")]
-    filled_count = 0
-    for start in range(0, len(appids), BATCH_SIZE):
-        batch = appids[start : start + BATCH_SIZE]
-        params = {"input_json": json.dumps(build_input_json(batch))}
-        response = get_json(ITEMS_URL, params=params, min_interval=MIN_INTERVAL)
-        items = response["response"]["store_items"]
-        if [item.get("id") for item in items] != batch:
-            raise ValueError("返回的游戏和请求的游戏对不上")
-
-        with conn:
-            for appid, item in zip(batch, items):
-                if item["success"] != RESULT_OK:
-                    # 采完之后才下架的游戏查不到了，这一列留空
-                    logger.info("appid=%d 现在查不到了，最早上架时刻留空", appid)
-                    continue
-                original = item["release"].get("original_steam_release_date")
-                conn.execute(
-                    "UPDATE raw_store_items SET original_release_ts = ? WHERE appid = ?",
-                    (original, appid),
-                )
-                if original is not None:
-                    filled_count += 1
-        logger.info("补最早上架时刻 %d/%d", start + len(batch), len(appids))
-
-    logger.info("补完：%d 款里 %d 款有最早上架时刻", len(appids), filled_count)
-
-
 def save_tag_names(conn, tags):
     """把标签名单写进 raw_tag_names。tags 是接口返回的列表，每项有 tagid 和 name。"""
     rows = [(tag["tagid"], tag["name"]) for tag in tags]
