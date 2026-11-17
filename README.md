@@ -1,6 +1,6 @@
 # steamsales-estimator
 
-只用公开数据估算单款 Steam 游戏的销量，输出估计值、80% 预测区间和置信标签。免费游戏计划只输出玩家数、不换算成销量（还没做）。
+只用公开数据估算单款 Steam 游戏的销量，输出估计值、80% 预测区间和置信标签。
 
 设计见 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)，公式推导见 [docs/DERIVATIONS.md](docs/DERIVATIONS.md)，决策记录见 [docs/devlog.md](docs/devlog.md)，讲解稿见 [docs/PRESENTATION.md](docs/PRESENTATION.md)。
 
@@ -53,4 +53,3 @@ python -m query <appid>                 # 现场采这一款、重跑清洗，�
 - **预测区间**：80%，取留一法误差的第 10、第 90 百分位。有 B 的 0.59 到 1.73 倍，没有 B 的 0.42 到 3.32 倍。
 - **置信标签**：按两路分歧和评测数分高、中、低，留一法下“高”的 41 款命中 66%。
 - **查询**：模型已冻结，单款查询 `python -m query <appid>` 可用。
-- **还没做**：结果页、免费游戏只出玩家数、泄露测试。
