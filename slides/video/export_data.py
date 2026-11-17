@@ -13,11 +13,15 @@ import joblib
 import numpy as np
 from sklearn.ensemble import HistGradientBoostingRegressor
 
-from analysis.evaluation import HIT_HIGH, HIT_LOW, N_FOLDS, load_train_samples, make_folds
+from analysis.evaluation import HIT_HIGH, HIT_LOW, N_FOLDS, load_train_samples, make_folds, score
+from analysis.fusion import REVIEW_BIN_STARTS
 from analysis.model_inputs import build_inputs, choose_tags
 from analysis.signal_a import TREE_PARAMS
+from analysis.signal_b import fit_line
 from common.paths import DB_PATH, PROJECT_ROOT
 from viz.feature_importance import load_fixed_multiplier, load_importance, mean
+from viz.fusion_by_reviews import scores_by_bin
+from viz.fusion_comparison import load_predictions
 from viz.k_by_reviews import summarize_bins
 from viz.reviews_vs_players import fit_fixed_multiplier, load_points
 
@@ -215,6 +219,79 @@ def k_by_year(conn):
     return out
 
 
+# 镜 17 拿来画在线人数曲线的那款游戏：Stardew Valley，上架后一个月冲到最高，之后稳在七八千人
+EXAMPLE_APPID = 413150
+# 镜 18–21 的四条线，顺序就是出场顺序
+FUSION_LINES = ["signal_a", "signal_b", "simple_mean", "binned_weighted"]
+
+
+def fusion(conn):
+    """镜 17–22：信号 B 的例子和拟合、按评测数分档的四条线、两张总成绩。
+
+    分档成绩用 viz/fusion_by_reviews.py 的同一段计算，和 figures/fusion_by_reviews_with_b.png 一致。"""
+    samples = load_train_samples(conn)
+    table = load_predictions(conn)
+    table["total_reviews"] = samples.set_index("sample_id")["total_reviews"]
+    with_b = table[table["has_b"]]
+
+    by_bin, counts = scores_by_bin(with_b, FUSION_LINES)
+    lines = {v: {"rmse": [float(x) for x in by_bin[v]["rmse"]], "hit": [float(x) for x in by_bin[v]["hit_rate"]]}
+             for v in FUSION_LINES}
+
+    def totals(subset, variants):
+        out = {}
+        for v in variants:
+            result = score(subset["true_ln_k"], subset[v])
+            out[v] = {"rmse": float(result["rmse"]), "hit": float(result["hit_rate"])}
+        return out
+
+    # 两路误差的相关系数：越接近 0，两路越少往同一边错
+    error_a = with_b["signal_a"] - with_b["true_ln_k"]
+    error_b = with_b["signal_b"] - with_b["true_ln_k"]
+    corr = float(np.corrcoef(error_a, error_b)[0, 1])
+
+    # 每档 A 的占比：公式和 analysis.fusion 一样（1 ÷ σ² 归一）。
+    # 融合时每一折用其余四折各算一次，这里用全部有 B 的游戏算一次，只为画出大小，数差不多
+    bins = np.digitize(with_b["total_reviews"], REVIEW_BIN_STARTS[1:])
+    shares = []
+    for b in range(len(REVIEW_BIN_STARTS)):
+        in_bin = bins == b
+        weight_a = 1 / np.std(error_a[in_bin]) ** 2
+        weight_b = 1 / np.std(error_b[in_bin]) ** 2
+        shares.append(float(weight_a / (weight_a + weight_b)))
+
+    # 换算框里的点：评测者时长中位数 t 和人均小时 h = H ÷ 真实玩家数，和 viz/signal_b_fit.py 同一批游戏
+    has_hours = samples[samples["charts_total_hours"].notna()]
+    ln_t = np.log(has_hours["playtime_median_hrs"].to_numpy())
+    ln_h = np.log(has_hours["charts_total_hours"].to_numpy() / has_hours["truth_value"].to_numpy())
+    a, b = fit_line(ln_t, ln_h)
+
+    # 例子游戏：截止月以前的每月平均在线人数，加起来要等于样本表里它的总小时
+    row = samples[samples["appid"] == EXAMPLE_APPID].iloc[0]
+    cutoff_month = row["cutoff_date"][:7]
+    months = conn.execute(
+        "SELECT month, avg_players, player_hours FROM cleaned_charts_monthly"
+        " WHERE appid = ? AND month < ? ORDER BY month",
+        (EXAMPLE_APPID, cutoff_month),
+    ).fetchall()
+    assert abs(sum(m[2] for m in months) - row["charts_total_hours"]) < 1, "例子游戏的总小时和样本表对不上"
+    name = conn.execute("SELECT name FROM cleaned_games WHERE appid = ?", (EXAMPLE_APPID,)).fetchone()[0]
+
+    return {
+        "bin_starts": REVIEW_BIN_STARTS,
+        "counts": counts,
+        "lines": lines,
+        "with_b": totals(with_b, FUSION_LINES),
+        "all": totals(table, ["signal_a", "simple_mean", "binned_weighted"]),
+        "n_with_b": int(len(with_b)),
+        "n_all": int(len(table)),
+        "corr": corr,
+        "shares": shares,
+        "fit": {"a": float(a), "b": float(b), "points": [[round(float(x), 3), round(float(y), 3)] for x, y in zip(ln_t, ln_h)]},
+        "example": {"name": name, "months": [[m[0], float(m[1])] for m in months]},
+    }
+
+
 def main():
     output_path = sys.argv[1]
 
@@ -229,6 +306,7 @@ def main():
         imp = importance(conn)
         cells = table_cells(conn)
         ages = k_by_year(conn)
+        fus = fusion(conn)
     finally:
         conn.close()
 
@@ -267,6 +345,8 @@ def main():
         "table_groups": TABLE_GROUPS,
         "cells": cells,
         "k_by_year": ages,
+        # 镜 17–22
+        "fusion": fus,
     }
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False)
@@ -286,6 +366,13 @@ def main():
     for g in imp["groups"]:
         print("  打乱", g["key"], f"{g['rmse']:.3f}", f"{g['hit']:.1%}")
     print("按上架年份的 k 中位数", [(y, round(m), n) for y, m, n in ages])
+    print("融合：每档", fus["counts"], "有 B", fus["n_with_b"], "全部", fus["n_all"], "误差相关", round(fus["corr"], 3))
+    for v, line in fus["lines"].items():
+        print("  ", v, [round(x, 3) for x in line["rmse"]], [f"{x:.1%}" for x in line["hit"]])
+    print("  A 占比", [round(x, 3) for x in fus["shares"]], "拟合 a b", round(fus["fit"]["a"], 2), round(fus["fit"]["b"], 2))
+    print("  有 B", {v: (round(r["rmse"], 3), f"{r['hit']:.1%}") for v, r in fus["with_b"].items()})
+    print("  全部", {v: (round(r["rmse"], 3), f"{r['hit']:.1%}") for v, r in fus["all"].items()})
+    print("  例子", fus["example"]["name"], len(fus["example"]["months"]), "个月")
     for variant in METHODS:
         counted = sum(h[METHODS.index(variant)] for h in hits.values()) / len(hits)
         print(variant, "估对比例", f"{methods[variant]['hit_rate']:.1%}", "逐款数出来", f"{counted:.1%}")
