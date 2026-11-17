@@ -154,27 +154,3 @@ def test_old_table_gets_the_new_column():
 
     row = conn.execute("SELECT name, release_ts, original_release_ts FROM raw_store_items").fetchone()
     assert row == ("Team Fortress 2", 1191999600, None)
-
-
-def test_backfill_updates_only_original_release(monkeypatch):
-    conn = sqlite3.connect(":memory:")
-    monkeypatch.setattr(store_items, "get_json", fake_get_json_factory())
-    store_items.crawl_store_items(conn, BATCH_APPIDS)
-    before = conn.execute("SELECT appid, name, release_ts, fetched_at FROM raw_store_items ORDER BY appid").fetchall()
-
-    # 补采时 413150 带上了最早上架时刻（数值取自 Space Engineers 的真实返回）
-    def fake_get_json(url, params=None, min_interval=None):
-        asked = [entry["appid"] for entry in json.loads(params["input_json"])["ids"]]
-        items = [item_of(appid) for appid in asked]
-        for item in items:
-            if item["id"] == 413150:
-                item["release"]["original_steam_release_date"] = 1382550972
-        return {"response": {"store_items": items}}
-
-    monkeypatch.setattr(store_items, "get_json", fake_get_json)
-    store_items.backfill_original_release(conn)
-
-    after = conn.execute("SELECT appid, name, release_ts, fetched_at FROM raw_store_items ORDER BY appid").fetchall()
-    assert after == before  # 别的列一律不动，包括 fetched_at
-    originals = dict(conn.execute("SELECT appid, original_release_ts FROM raw_store_items"))
-    assert originals == {440: None, 1200: None, 413150: 1382550972, 639840: None}

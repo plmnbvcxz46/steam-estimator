@@ -379,3 +379,4 @@
 - 依赖去掉 Plotly（没有任何代码用，画图只用 matplotlib），技术栈补上 `joblib`。
 - 核对过：文档里的 `python -m` 命令都有对应模块；`figures/` 的 14 张图和讲解稿图表清单一一对应；README、DEVELOPMENT、讲解稿里的表名除 `result_estimates` 外都在库里（devlog 的历史条目保留当时的旧表名）。
 - `figures/dataflow.html` 重画：原来是早期设计（旧表名、`genre_*`、`p_post`、当前价兜底，带交互和字段字典），和现状差得多。重新设计成七列：数据源、原始表、清洗表、样本表、分析、结果、输出；表名和连线按代码里实际读写的表核对过，字段和主键取自数据库的表结构。演示时直接用它：点一个节点，相连的线加粗、其余变淡，底部显示说明、上下游和字段；点 train、calib、query 显示各自的路径；再点一次或按 Esc 恢复。
+- 删掉 `crawler/sources/store_items.py` 的 `backfill_original_release` 和它的测试：一次性补数早已做完，入口删掉后只有测试在调用。远程 15 个已合并的分支也删了。
