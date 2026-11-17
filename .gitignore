@@ -29,3 +29,6 @@ CLAUDE.md
 
 # 多机分头采集时生成的小数据库和压缩包
 data/split/
+
+# 讲解视频的构建目录：数据、字体、录出来的视频，都能重新生成
+slides/video/build/
