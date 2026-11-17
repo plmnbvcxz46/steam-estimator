@@ -17,6 +17,7 @@ from analysis.evaluation import HIT_HIGH, HIT_LOW, N_FOLDS, load_train_samples, 
 from analysis.model_inputs import build_inputs, choose_tags
 from analysis.signal_a import TREE_PARAMS
 from common.paths import DB_PATH, PROJECT_ROOT
+from viz.feature_importance import load_fixed_multiplier, load_importance, mean
 from viz.k_by_reviews import summarize_bins
 from viz.reviews_vs_players import fit_fixed_multiplier, load_points
 
@@ -151,6 +152,69 @@ def source_counts(conn):
     }
 
 
+# 镜 13–16 左边考题表的 9 列：组名和 part3.js 的 GROUPS3 同一个顺序，最后一列是答案
+TABLE_GROUPS = ["game_age", "tags", "total_reviews", "positive_rate", "steam_purchase",
+                "languages", "playtime", "price"]
+TABLE_ROWS = 20
+
+
+def importance(conn):
+    """镜 13–16：8 组特征打乱后的误差和估对比例（5 种分折平均），按误差从大到小排。
+
+    和 figures/feature_importance.png 读的是同一张表、同样取平均。"""
+    scores = load_importance(conn)
+    groups = [{"key": key, "rmse": mean(v["rmse"]), "hit": mean(v["hit"])}
+              for key, v in scores.items() if key != "baseline"]
+    groups.sort(key=lambda g: -g["rmse"])
+    fixed_rmse, fixed_hit = load_fixed_multiplier(conn)
+    base = scores["baseline"]
+    return {
+        "baseline": {"rmse": mean(base["rmse"]), "hit": mean(base["hit"])},
+        "fixed": {"rmse": fixed_rmse, "hit": fixed_hit},
+        "groups": groups,
+    }
+
+
+def table_cells(conn):
+    """镜 13–16 考题表里画的 20 款真实游戏：每组取一列代表，值换成在 9623 款里的百分位（0–1），画成格子里的小条。
+
+    最后一列是答案（玩家数）。"""
+    samples = load_train_samples(conn)
+    inputs = build_inputs(samples, choose_tags(samples["tags"]))
+    tags = [c for c in inputs.columns if c.startswith("tag_")]
+    columns = [
+        inputs["game_age_years"],
+        inputs[tags].sum(axis=1),       # 标签：这款打了几个选中的标签
+        inputs["total_reviews"],
+        inputs["positive_rate"],
+        inputs["steam_purchase_ratio"],
+        inputs["lang_english"],         # 语言：英语评测占比
+        inputs["playtime_median_hrs"],
+        inputs["price_at_cutoff_usd"],
+        samples["truth_value"],
+    ]
+    ranks = np.column_stack([c.rank(pct=True).to_numpy() for c in columns])
+    rows = np.random.default_rng(0).choice(len(samples), TABLE_ROWS, replace=False)
+    return [[round(float(v), 3) for v in ranks[r]] for r in rows]
+
+
+# 镜 14：上架年份太少的几年（2004–2007 每年不到 10 款）不画
+MIN_YEAR = 2008
+CUTOFF_YEAR = 2018 + 181 / 365  # 截止日 2018-07-01 折成年份
+
+
+def k_by_year(conn):
+    """镜 14：按上架年份分组，每年 k 的中位数和款数。上架年份 = 截止日减去游戏年龄。"""
+    samples = load_train_samples(conn)
+    years = np.floor(CUTOFF_YEAR - samples["game_age_years"].to_numpy()).astype(int)
+    k = np.exp(samples["ln_k"].to_numpy())
+    out = []
+    for year in range(MIN_YEAR, int(years.max()) + 1):
+        chosen = k[years == year]
+        out.append([year, float(np.median(chosen)), int(len(chosen))])
+    return out
+
+
 def main():
     output_path = sys.argv[1]
 
@@ -162,6 +226,9 @@ def main():
         curve, n_features = staged_hit_rate(conn)
         n_off3 = off_by_three(conn)
         sources = source_counts(conn)
+        imp = importance(conn)
+        cells = table_cells(conn)
+        ages = k_by_year(conn)
     finally:
         conn.close()
 
@@ -195,6 +262,11 @@ def main():
         # 镜 12：最好的树模型仍估错 3 倍以上的游戏（估计 ÷ 真值大于 3 或小于 1/3）
         "off3": n_off3,
         "sources": sources,
+        # 镜 13–16
+        "importance": imp,
+        "table_groups": TABLE_GROUPS,
+        "cells": cells,
+        "k_by_year": ages,
     }
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False)
@@ -210,6 +282,10 @@ def main():
           "（重新训练的，表里存的是", f"{methods['tree']['hit_rate']:.1%}）")
     print("估错 3 倍以上", data["off3"], "款；各来源", data["sources"])
     print("第 1 棵树", data["tree"])
+    print("不打乱", imp["baseline"], "固定 k", imp["fixed"])
+    for g in imp["groups"]:
+        print("  打乱", g["key"], f"{g['rmse']:.3f}", f"{g['hit']:.1%}")
+    print("按上架年份的 k 中位数", [(y, round(m), n) for y, m, n in ages])
     for variant in METHODS:
         counted = sum(h[METHODS.index(variant)] for h in hits.values()) / len(hits)
         print(variant, "估对比例", f"{methods[variant]['hit_rate']:.1%}", "逐款数出来", f"{counted:.1%}")
