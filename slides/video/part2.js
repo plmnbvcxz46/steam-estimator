@@ -66,10 +66,8 @@ function landed(m) {
 
 function camera2(t) {
   const cam = cameraAt(t);  // 第一段最后停下的位置
-  let punch = 0;
-  for (const m of [0, 1, 2]) punch += kick(t, landed(m));
-  punch += 0.6 * kick(t, B2.best);
-  cam.zoom *= 1 + 0.018 * punch;
+  // 整幅画面只在树模型的估对比例落定时顶一下（念“最高”也在这一刻），前两种方法不顶
+  cam.zoom *= 1 + 0.018 * kick(t, landed(2));
   return cam;
 }
 

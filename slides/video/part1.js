@@ -165,11 +165,8 @@ function cameraAt(t) {
       cy: lerp(cam.cy, m.to.cy, p),
     };
   }
-  // 关键结果落地时镜头顶一下
-  const hits = [B.kline + 0.45, B.ten, B.r39, B.seqEnd, B.jump, B.remove];
-  let punch = 0;
-  for (const h of hits) punch += kick(t, h);
-  cam.zoom *= 1 + 0.022 * punch;
+  // 整幅画面只在每段最要紧的结论上顶一下，第一段是“39 倍”
+  cam.zoom *= 1 + 0.022 * kick(t, B.r39);
   return cam;
 }
 

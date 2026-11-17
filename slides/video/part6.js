@@ -400,7 +400,8 @@ function drawQuery6(ctx, t) {
 function drawPart6(ctx, chart, t) {
   drawHandoff6(ctx, t);
   t_now = t;
-  const punch = kick(t, B6.fused6 + 0.4) + kick(t, B6.low6) + kick(t, B6.label6);
+  // 融合回升时整幅画面顶一下；两处“低”标签自己会弹，整幅不再顶
+  const punch = kick(t, B6.fused6 + 0.4);
   ctx.save();
   ctx.translate(W / 2, H / 2);
   ctx.scale(1 + 0.012 * punch, 1 + 0.012 * punch);

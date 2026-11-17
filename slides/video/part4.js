@@ -420,8 +420,8 @@ function drawYears4(ctx, t) {
 
 function drawPart4(ctx, chart, t) {
   t_now = t;
-  // 年龄的成绩落下、线段长齐时整幅画面顶一下
-  const punch = kick(t, CYC4[0].drop) + kick(t, B4.up + 0.6 + 7 * 0.06);
+  // 年龄的成绩落下（影响最大）时整幅画面顶一下
+  const punch = kick(t, CYC4[0].drop);
   ctx.save();
   ctx.translate(W / 2, H / 2);
   ctx.scale(1 + 0.012 * punch, 1 + 0.012 * punch);

@@ -514,8 +514,8 @@ function drawOff3(ctx, t) {
 function drawPart3(ctx, chart, t) {
   t_now = t;
   drawHandoff3(ctx, t);
-  // 关键时刻整幅画面顶一下
-  const punch = kick(t, B3.gridEnd) + kick(t, B3.off);
+  // 400 棵长齐时整幅画面顶一下；“估错 3 倍以上”是局限，不顶
+  const punch = kick(t, B3.gridEnd);
   ctx.save();
   ctx.translate(W / 2, H / 2);
   ctx.scale(1 + 0.012 * punch, 1 + 0.012 * punch);

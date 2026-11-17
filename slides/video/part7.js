@@ -199,8 +199,8 @@ function drawPart7(ctx, chart, t) {
   t_now = t;
   if (t < B7.s26 + 0.2) return;
   const cam = camera7(t);
-  const punch = kick(t, B7.refuse7 + 0.3);
-  const z = cam.zoom * (1 + 0.012 * punch);
+  // 总览只是回顾，整幅画面不再顶，结尾静止收住
+  const z = cam.zoom;
   ctx.save();
   ctx.translate(W / 2, H / 2);
   ctx.scale(z, z);

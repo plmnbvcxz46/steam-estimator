@@ -582,8 +582,8 @@ function drawBars5(ctx, t) {
 function drawPart5(ctx, chart, t) {
   drawHandoff5(ctx, t);
   t_now = t;
-  // 融合各档都更好、两个“提高”落地时整幅画面顶一下
-  const punch = kick(t, B5.better5) + kick(t, B5.ten5 + 0.3) + kick(t, B5.four5 + 0.3);
+  // “提高约十个百分点”落地时整幅画面顶一下；紧跟着的“四个百分点”不再顶
+  const punch = kick(t, B5.ten5 + 0.3);
   ctx.save();
   ctx.translate(W / 2, H / 2);
   ctx.scale(1 + 0.012 * punch, 1 + 0.012 * punch);
