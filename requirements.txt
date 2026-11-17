@@ -5,6 +5,5 @@ scipy
 scikit-learn
 joblib
 matplotlib
-plotly
 pytest
 python-dotenv

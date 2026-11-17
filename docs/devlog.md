@@ -370,3 +370,12 @@
 - 冻结放在 `analysis.calibration` 末尾，不另开文件：`raw_estimates` 多返回树、标签清单和 $a$、$b$，`main` 存进 `data/models/frozen.joblib`（约 1.5 MB）。
 - 单款查询 `python -m query <appid>`：记 `raw_query_targets` 一行、采这一款、另起进程跑 `python -m pipeline`、读样本表的 `query` 行套冻结的公式。样本表加 `select_query`；`pick_appids` 也带上查过的游戏（用户问过有没有必要：raw 不删，其实用不上，保持现状）。实测 Vampire Survivors 约 51 秒，估 1116 万份，标签“低（分歧大）”。
 - 还没做：结果页、免费游戏只出玩家数、泄露测试；按游戏采的数据再查同一款时不更新。
+
+## 2026-11-17（整理：文档和代码对齐）
+
+- 只对齐说法，不改行为。README 首句把“免费游戏只输出玩家数”改成计划中，去掉还没有的“可复查的计算过程”；进度由一整段拆成逐条，数字没动。
+- 架构表补上 `query` 一行，置信标签从 `analysis` 挪到 `query`（代码本来就在那里）；AGENTS.md 里“`query` 不含计算逻辑”改成实际情况：不拟合，只有套冻结系数的估算和打标签。
+- 结果表去掉没建的 `result_params`、`result_feature_importance` 两行：参数在冻结文件里，特征重要性在 `result_cv_scores` 里。`result_estimates` 仍标未实现，留给结果页。
+- 依赖去掉 Plotly（没有任何代码用，画图只用 matplotlib），技术栈补上 `joblib`。
+- 核对过：文档里的 `python -m` 命令都有对应模块；`figures/` 的 14 张图和讲解稿图表清单一一对应；README、DEVELOPMENT、讲解稿里的表名除 `result_estimates` 外都在库里（devlog 的历史条目保留当时的旧表名）。
+- `figures/dataflow.html` 重画：原来是早期设计（旧表名、`genre_*`、`p_post`、当前价兜底，带交互和字段字典），和现状差得多。重新设计成七列：数据源、原始表、清洗表、样本表、分析、结果、输出；表名和连线按代码里实际读写的表核对过，字段和主键取自数据库的表结构。演示时直接用它：点一个节点，相连的线加粗、其余变淡，底部显示说明、上下游和字段；点 train、calib、query 显示各自的路径；再点一次或按 Esc 恢复。
