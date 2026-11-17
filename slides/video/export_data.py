@@ -11,14 +11,18 @@ import sys
 
 import joblib
 import numpy as np
+import pandas as pd
 from sklearn.ensemble import HistGradientBoostingRegressor
 
+from analysis.calibration import MIN_AGE_YEARS
 from analysis.evaluation import HIT_HIGH, HIT_LOW, N_FOLDS, load_train_samples, make_folds, score
 from analysis.fusion import REVIEW_BIN_STARTS
 from analysis.model_inputs import build_inputs, choose_tags
 from analysis.signal_a import TREE_PARAMS
 from analysis.signal_b import fit_line
-from common.paths import DB_PATH, PROJECT_ROOT
+from common.paths import DB_PATH, FROZEN_MODEL_PATH, PROJECT_ROOT
+from query.__main__ import confidence_label, estimate
+from viz.calibration_age import load_points as load_age_points
 from viz.feature_importance import load_fixed_multiplier, load_importance, mean
 from viz.fusion_by_reviews import scores_by_bin
 from viz.fusion_comparison import load_predictions
@@ -292,6 +296,58 @@ def fusion(conn):
     }
 
 
+# 镜 25 的单款查询：Vampire Survivors，2026-11-16 查过一次，样本表里有它的 query 行
+QUERY_SAMPLE = "query:1794680:2026-11-16"
+
+
+def calibration(conn):
+    """镜 23–25：近年 116 款的成绩、k 随年龄的变化、留一法的“真值 ÷ 估计”、区间倍数、单款查询。
+
+    成绩读 result_cv_scores（experiment = calibration）；年龄分档用 viz/calibration_age.py 的同一段取数；
+    查询用 query 的 estimate 和冻结文件，样本行是当时现场采的，这里不联网。"""
+    scores = {v: {"rmse": r, "hit": h} for v, r, h in conn.execute(
+        "SELECT variant, rmse, hit_rate FROM result_cv_scores WHERE experiment = 'calibration'")}
+
+    ages, counts = load_age_points(conn)
+
+    # 留一法里每款的“真值 ÷ 融合估计”，有 B、没 B 分开
+    loo = pd.read_sql_query(
+        "SELECT sample_id, true_ln_k - predicted_ln_k AS err FROM result_cv_predictions"
+        " WHERE experiment = 'calibration' AND variant = 'fused'", conn)
+    with_b = {r[0] for r in conn.execute(
+        "SELECT sample_id FROM result_cv_predictions WHERE experiment = 'calibration_with_b' AND variant = 'fused'")}
+    has_b = loo["sample_id"].isin(with_b)
+    frozen = joblib.load(FROZEN_MODEL_PATH)
+
+    # 单款查询：估计、区间、标签都由 query 的 estimate 算；两路各自的 k 另算一次，画对比尺用
+    sample = pd.read_sql_query("SELECT * FROM cleaned_samples WHERE sample_id = ?", conn, params=(QUERY_SAMPLE,))
+    units, low, high, divergence = estimate(sample, frozen)
+    reviews = int(sample["total_reviews"].iloc[0])
+    ln_tree = frozen["tree"].predict(build_inputs(sample, frozen["tag_list"]))[0]
+    gamma0, beta, c = frozen["a_calibration"]
+    ln_a = gamma0 + beta * ln_tree + c * np.log(max(sample["game_age_years"].iloc[0], MIN_AGE_YEARS))
+    line_a, line_b = frozen["b_line"]
+    ln_b = (np.log(sample["charts_total_hours"].iloc[0]) - (line_a + line_b * np.log(sample["playtime_median_hrs"].iloc[0]))
+            - np.log(reviews) + frozen["b_shift"])
+    assert abs(abs(ln_a - ln_b) - divergence) < 1e-9, "两路的 k 和 estimate 对不上"
+    name = conn.execute("SELECT name FROM raw_store_items WHERE appid = ?", (int(sample["appid"].iloc[0]),)).fetchone()[0]
+
+    return {
+        "n": int(len(loo)),
+        "n_with_b": int(has_b.sum()),
+        "scores": scores,
+        "age_train": [float(np.exp(x)) for x in ages["train_truth"]],
+        "age_calib": [float(np.exp(x)) for x in ages["calib_truth"]],
+        "age_counts": [int(x) for x in counts],
+        "ratios_b": [round(float(np.exp(x)), 4) for x in loo["err"][has_b]],
+        "ratios_no_b": [round(float(np.exp(x)), 4) for x in loo["err"][~has_b]],
+        "interval": {"b": [float(x) for x in frozen["interval_ratios"][True]],
+                     "no_b": [float(x) for x in frozen["interval_ratios"][False]]},
+        "query": {"name": name, "reviews": reviews, "units": float(units), "low": float(low), "high": float(high),
+                  "k_a": float(np.exp(ln_a)), "k_b": float(np.exp(ln_b)), "label": confidence_label(reviews, divergence)},
+    }
+
+
 def main():
     output_path = sys.argv[1]
 
@@ -307,6 +363,7 @@ def main():
         cells = table_cells(conn)
         ages = k_by_year(conn)
         fus = fusion(conn)
+        cal = calibration(conn)
     finally:
         conn.close()
 
@@ -347,6 +404,8 @@ def main():
         "k_by_year": ages,
         # 镜 17–22
         "fusion": fus,
+        # 镜 23–25
+        "calibration": cal,
     }
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False)
@@ -373,6 +432,12 @@ def main():
     print("  有 B", {v: (round(r["rmse"], 3), f"{r['hit']:.1%}") for v, r in fus["with_b"].items()})
     print("  全部", {v: (round(r["rmse"], 3), f"{r['hit']:.1%}") for v, r in fus["all"].items()})
     print("  例子", fus["example"]["name"], len(fus["example"]["months"]), "个月")
+    print("校准：", cal["n"], "款，有 B", cal["n_with_b"], {v: f"{r['hit']:.1%}" for v, r in cal["scores"].items()})
+    print("  k 随年龄：训练集", [round(x) for x in cal["age_train"]], "近年", [round(x) for x in cal["age_calib"]], cal["age_counts"])
+    print("  区间倍数", {g: [round(x, 2) for x in v] for g, v in cal["interval"].items()})
+    q = cal["query"]
+    print("  查询", q["name"], q["reviews"], f"{q['units'] / 1e4:.0f} 万", f"{q['low'] / 1e4:.0f}–{q['high'] / 1e4:.0f} 万",
+          "A", round(q["k_a"], 1), "B", round(q["k_b"], 1), q["label"])
     for variant in METHODS:
         counted = sum(h[METHODS.index(variant)] for h in hits.values()) / len(hits)
         print(variant, "估对比例", f"{methods[variant]['hit_rate']:.1%}", "逐款数出来", f"{counted:.1%}")

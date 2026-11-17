@@ -160,4 +160,6 @@ def main():
     print(f"置信标签：{label}")
 
 
-main()
+# 讲解视频的取数要导入 estimate，导入时不能跑采集
+if __name__ == "__main__":
+    main()
