@@ -387,8 +387,8 @@ sec("校准与输出");
   s.addText([
     { text: "Vampire Survivors", options: { fontSize: 18, bold: true, color: C.text1, breakLine: true } },
     { text: "评测 26.7 万条", options: { fontSize: 13, color: C.text2, breakLine: true } },
-    { text: "约 1116 万份", options: { fontSize: 34, bold: true, color: C.accent1, breakLine: true } },
-    { text: "80% 区间 662 万 ～ 1927 万", options: { fontSize: 15, color: C.text1, breakLine: true } },
+    { text: "约 1121 万份", options: { fontSize: 34, bold: true, color: C.accent1, breakLine: true } },
+    { text: "80% 区间 667 万 ～ 1936 万", options: { fontSize: 15, color: C.text1, breakLine: true } },
     { text: "标签：低（两路估计分歧大）", options: { fontSize: 15, color: C.text1 } },
   ], { x: 5.25, y: 1.35, w: 4.0, h: 3.0, margin: 0, valign: "top", paraSpaceAfter: 6, isTextBox: true });
   takeaway(s, "一次约 1 分钟；特征和训练时是同一段代码算的");
