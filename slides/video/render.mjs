@@ -5,10 +5,12 @@
 //   node slides/video/render.mjs <构建目录> <首镜>-<末镜>                 录视频
 //   node slides/video/render.mjs <构建目录> <首镜>-<末镜> --at 3.2,10-12/8   只截这些时刻的图（秒；a-b/n 是 a 到 b 均匀取 n 张）
 //   node slides/video/render.mjs <构建目录> <首镜>-<末镜> --beats              打印每个动作的时刻
+//   node slides/video/render.mjs <构建目录> <首镜>-<末镜> --audio              不重录画面，用 shots/ 里已有的镜重新配声音
 //   以上都可以加 --eval "<代码>"，打开页面后先执行，出样品切换画法用
 // 构建目录里要先有 data.json（export_data.py 导出）和 fonts/（NotoSansSC.ttf、Inter.ttf）。
+// 有 voice/（voice.py 合成）时按配音排时间、成片带声音；没有就按估算的语速排、成片无声。
 
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync, unlinkSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
@@ -22,11 +24,12 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const FPS = 60;
 
 // ---------- 语速和每镜的时长 ----------
-// 还没有配音，先按语速估每个字什么时候念到；以后有了真配音，用配音的时间替换 times 即可。
-const RATE = 4.2;  // 每秒念几个“字”，约每分钟 250 字
+// 构建目录里有 voice/（voice.py 合成的配音）就用配音里每个字的真实时刻；
+// 没有就按语速估每个字什么时候念到，先排画面用。
+const RATE = 4.2;  // 估算用：每秒念几个“字”，约每分钟 250 字
 
 // 每镜在旁白前后留的时间（秒），给画面动作让出空间。没写的用默认值
-const LEAD = { default: 0.35, 2: 1.1, 4: 0.7, 5: 0.8, 6: 0.5, 7: 0.6, 10: 1.0, 13: 0.9, 14: 0.9, 16: 0.8, 17: 0.8, 18: 1.1, 22: 0.7, 23: 0.8, 24: 0.9, 25: 0.9, 26: 0.9 };   // 开口前
+const LEAD = { default: 0.35, 2: 1.1, 4: 0.7, 5: 0.8, 6: 0.5, 7: 0.6, 10: 1.0, 13: 0.9, 14: 0.9, 16: 0.8, 17: 0.8, 18: 1.1, 22: 0.7, 23: 0.8, 24: 0.9, 25: 0.9, 26: 0.9, 27: 0.6 };   // 开口前
 const EXTRA = { default: 0.35, 1: 1.6, 5: 0.6, 6: 1.4, 7: 1.0, 8: 0.6, 9: 1.6, 10: 1.0, 12: 1.6, 15: 1.0, 16: 1.8, 17: 0.8, 19: 0.5, 20: 0.6, 21: 0.8, 22: 2.0, 23: 1.4, 24: 1.6, 25: 2.0, 26: 0.8, 27: 1.0, 28: 3.0 };  // 念完后
 
 // 每个字念起来占多少“字”的时间：汉字算 1；一串英文字母按一个词算；一串数字按位数算；标点是停顿
@@ -46,7 +49,7 @@ function speechWeights(text) {
 
 // 分镜表的一行长这样：| 镜 | 秒 | 画面与动效 | 屏幕字 | 配音 / 字幕 |
 // 单元格里的竖线都是全角“｜”，所以按半角 | 切开是安全的
-function readStoryboard() {
+function readStoryboard(voiceDir) {
   const text = readFileSync(join(HERE, "storyboard.md"), "utf8");
   const shots = [];
   for (const line of text.split("\n")) {
@@ -60,10 +63,21 @@ function readStoryboard() {
   for (const shot of shots) {
     const lead = LEAD[shot.n] ?? LEAD.default;
     const extra = EXTRA[shot.n] ?? EXTRA.default;
-    const weights = speechWeights(shot.voice);
     // times[i]：第 i 个字开始念的时刻；times[字数] 是念完的时刻
-    shot.times = [start + lead];
-    for (const w of weights) shot.times.push(shot.times[shot.times.length - 1] + w / RATE);
+    if (voiceDir) {
+      // 有配音：开口的那一刻落在镜头开始后 lead 秒，每个字的时刻照配音来。
+      // 半边真时间、半边估算的片子对不上，所以缺了哪镜的配音、或者分镜改了字没重配，都直接报错
+      const path = join(voiceDir, `shot${String(shot.n).padStart(2, "0")}.json`);
+      if (!existsSync(path)) throw new Error(`镜 ${shot.n} 还没有配音：先跑 voice.py`);
+      const v = JSON.parse(readFileSync(path, "utf8"));
+      if (v.text !== shot.voice) throw new Error(`镜 ${shot.n} 的旁白改过了，配音是旧的：重跑 voice.py`);
+      shot.audio = { path: path.replace(/\.json$/, ".wav"), at: lead - v.voiced_start };  // 音频第 0 秒在镜内的时刻
+      shot.times = v.times.map((t) => start + shot.audio.at + t);
+    } else {
+      const weights = speechWeights(shot.voice);
+      shot.times = [start + lead];
+      for (const w of weights) shot.times.push(shot.times[shot.times.length - 1] + w / RATE);
+    }
     shot.start = start;
     shot.secs = Math.round((shot.times[shot.times.length - 1] - start + extra) * FPS) / FPS;
     shot.subs = splitSubtitles(shot);
@@ -161,6 +175,29 @@ function run(cmd, args) {
   });
 }
 
+// ---------- 声音 ----------
+
+// 拼出一段和画面一样长的配音：每镜的音频放到它在镜内的时刻，前后补静音，截成正好一镜长，再一镜接一镜
+async function buildAudio(shots, outPath) {
+  const args = ["-y", "-loglevel", "error"];
+  const filters = [];
+  shots.forEach((s, i) => {
+    args.push("-i", s.audio.path);
+    const cut = Math.max(0, -s.audio.at);  // 音频开头的静音比 lead 还长时，剪掉多出来的那一点
+    const delay = Math.round(Math.max(0, s.audio.at) * 1000);
+    filters.push(`[${i}:a]atrim=start=${cut.toFixed(4)},asetpts=PTS-STARTPTS,adelay=${delay}:all=1,apad,atrim=end=${s.secs.toFixed(4)}[a${i}]`);
+  });
+  // 接好后统一响度：配音原样偏小（平均约 -24 dB），拉到网络视频常用的 -16 LUFS，峰值压在 -1.5 dB 以下
+  filters.push(`${shots.map((_, i) => `[a${i}]`).join("")}concat=n=${shots.length}:v=0:a=1,loudnorm=I=-16:TP=-1.5:LRA=11,aresample=48000[out]`);
+  await run("ffmpeg", [...args, "-filter_complex", filters.join(";"), "-map", "[out]", "-c:a", "pcm_s16le", outPath]);
+}
+
+// 画面原样拷过去，只加一条声音
+async function mux(video, audio, out) {
+  await run("ffmpeg", ["-y", "-loglevel", "error", "-i", video, "-i", audio,
+    "-map", "0:v", "-map", "1:a", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", out]);
+}
+
 // "3.2,10-12/8" → [3.2, 10, 10.29, …, 12]
 function parseTimes(spec) {
   const out = [];
@@ -182,7 +219,8 @@ const buildDir = resolve(process.argv[2]);
 const [first, last] = process.argv[3].split("-").map(Number);
 const atIndex = process.argv.indexOf("--at");
 
-const all = readStoryboard();
+const voiceDir = existsSync(join(buildDir, "voice")) ? join(buildDir, "voice") : null;
+const all = readStoryboard(voiceDir);
 const chosen = all.filter((s) => s.n >= first && s.n <= last);
 for (const s of chosen) console.log(`镜 ${s.n}：${s.start.toFixed(2)} 秒起，${s.secs.toFixed(2)} 秒`);
 const { browser, page } = await openFilm(buildDir, { shots: all });
@@ -209,18 +247,30 @@ if (process.argv.includes("--beats")) {
   }
 } else {
   mkdirSync(join(buildDir, "shots"), { recursive: true });
+  const audioOnly = process.argv.includes("--audio");
   const list = [];
   for (const shot of chosen) {
     const out = join(buildDir, "shots", `shot${String(shot.n).padStart(2, "0")}.mp4`);
-    const began = Date.now();
-    await renderShot(page, shot, out);
-    console.log(`镜 ${shot.n} 录完，用了 ${((Date.now() - began) / 1000).toFixed(0)} 秒`);
+    if (!audioOnly) {
+      const began = Date.now();
+      await renderShot(page, shot, out);
+      console.log(`镜 ${shot.n} 录完，用了 ${((Date.now() - began) / 1000).toFixed(0)} 秒`);
+    }
     list.push(`file '${out}'`);
   }
   const name = `film_${first}-${last}`;
+  const final = join(buildDir, `${name}.mp4`);
+  const silent = voiceDir ? join(buildDir, `${name}_silent.mp4`) : final;
   writeFileSync(join(buildDir, `${name}.txt`), list.join("\n") + "\n");
   await run("ffmpeg", ["-y", "-loglevel", "error", "-f", "concat", "-safe", "0",
-    "-i", join(buildDir, `${name}.txt`), "-c", "copy", join(buildDir, `${name}.mp4`)]);
+    "-i", join(buildDir, `${name}.txt`), "-c", "copy", silent]);
+  if (voiceDir) {
+    const wav = join(buildDir, `${name}.wav`);
+    await buildAudio(chosen, wav);
+    await mux(silent, wav, final);
+    unlinkSync(silent);
+    unlinkSync(wav);
+  }
   writeSrt(chosen, join(buildDir, `${name}.srt`), chosen[0].start);
   console.log("成片：", join(buildDir, `${name}.mp4`));
 }
