@@ -144,7 +144,7 @@ sec("k 的规律");
   stat(s, 5.3, 1.15, 2.05, 1.45, "39 倍", "评测 1–9 条时 k 的波动");
   stat(s, 7.5, 1.15, 2.05, 1.45, "4–6 倍", "评测 500 条以上仍有的波动", C.accent2);
   stat(s, 5.3, 2.8, 2.05, 1.45, "26.1%", "共用一个 k：±30% 命中率", C.accent6);
-  stat(s, 7.5, 2.8, 2.05, 1.45, "46.3%", "按每款情况估 k（第 8 步）", C.accent3);
+  stat(s, 7.5, 2.8, 2.05, 1.45, "46.2%", "按每款情况估 k（第 8 步）", C.accent3);
   takeaway(s, "每款游戏要按自己的情况估 k");
 }
 
@@ -234,7 +234,7 @@ sec("模型");
 {
   const s = slide("CONTENT", "信号 A：树模型比两个对照都准",
     "五折交叉验证：每款游戏都在模型没见过它的那一轮当考题。树模型是 scikit-learn 的 HistGradientBoostingRegressor。");
-  s.addChart(pres.charts.BAR, [{ name: "±30% 命中率", labels: ["固定倍数", "线性回归", "树模型"], values: [26.1, 36.3, 46.3] }], {
+  s.addChart(pres.charts.BAR, [{ name: "±30% 命中率", labels: ["固定倍数", "线性回归", "树模型"], values: [26.1, 36.3, 46.2] }], {
     x: 0.5, y: 1.1, w: 4.6, h: 3.5, barDir: "col", chartColors: [HEX.accent6, HEX.accent2, HEX.accent1],
     showTitle: true, title: "±30% 命中率（%），9623 款五折", titleFontSize: 13, titleColor: HEX.dk1,
     showValue: true, dataLabelPosition: "outEnd", dataLabelFormatCode: "0.0", valAxisMinVal: 0, valAxisMaxVal: 60,
@@ -244,12 +244,12 @@ sec("模型");
     ["方法", "误差", "命中率"],
     ["固定倍数", "1.018", "26.1%"],
     ["线性回归", "0.824", "36.3%"],
-    ["树模型", "0.701", "46.3%"],
+    ["树模型", "0.699", "46.2%"],
   ], 5.4, 1.3, 4.1, [1.7, 1.2, 1.2], 14);
   bullets(s, [
     "看特征：+10 个百分点",
     "学会条件组合：再 +10 个百分点",
-    "调参只让误差从 0.703 降到 0.701",
+    "调参只让误差从 0.704 降到 0.699",
   ], 5.4, 3.1, 4.1, 1.5, 14);
   takeaway(s, "特征有用，特征之间的组合也有用");
 }
@@ -259,7 +259,7 @@ sec("模型");
   const s = slide("CONTENT", "k 主要看三件事：多老、在哪买、多少钱",
     "把一组特征在考题上随机打乱再考一次，成绩掉得越多越重要。按组打乱，5 种分折各做一遍。");
   fig(s, "feature_importance.png", 0.4, 1.3, 6.0, 3.3, 1650, 720);
-  stat(s, 6.6, 1.15, 2.9, 1.05, "0.700→0.925", "打乱游戏年龄后的误差", C.accent1, 24);
+  stat(s, 6.6, 1.15, 2.9, 1.05, "0.700→0.924", "打乱游戏年龄后的误差", C.accent1, 24);
   stat(s, 6.6, 2.35, 2.9, 1.05, "≈ 0.82", "打乱 Steam 内购买占比或价格", C.accent2, 24);
   stat(s, 6.6, 3.55, 2.9, 1.05, "8 组都变差", "5 次都变差，没有可删的", C.accent3, 24);
   takeaway(s, "年龄最重要：评测系统上线前买的人没留下评测，老游戏 k 大");
@@ -276,7 +276,7 @@ sec("模型");
   ], { x: 0.5, y: 1.15, w: 5.1, h: 1.6, margin: 0, valign: "top", paraSpaceAfter: 6, isTextBox: true });
   table(s, [
     ["3722 款", "误差", "命中率"],
-    ["信号 A", "0.604", "53.1%"],
+    ["信号 A", "0.602", "53.1%"],
     ["信号 B", "0.578", "49.4%"],
   ], 0.5, 3.0, 5.1, [2.1, 1.5, 1.5], 14);
   stat(s, 6.0, 1.15, 3.5, 1.6, "0.15", "A、B 误差的相关系数：很少往同一边错", C.accent1);
@@ -289,8 +289,8 @@ sec("模型");
   const s = slide("CONTENT", "融合：谁平时准，多听谁的",
     "票数 = 1 ÷ 误差平方，在 ln k 上按占比混合；按评测数分 5 档，各定一个占比。没有 B 的直接用 A。");
   s.addChart(pres.charts.BAR, [
-    { name: "只用 A", labels: ["全部 9623 款", "有 B 的 3722 款"], values: [46.3, 53.1] },
-    { name: "融合", labels: ["全部 9623 款", "有 B 的 3722 款"], values: [50.4, 63.5] },
+    { name: "只用 A", labels: ["全部 9623 款", "有 B 的 3722 款"], values: [46.2, 53.1] },
+    { name: "融合", labels: ["全部 9623 款", "有 B 的 3722 款"], values: [50.2, 63.5] },
   ], {
     x: 0.5, y: 1.1, w: 5.2, h: 3.5, barDir: "col", chartColors: [HEX.accent6, HEX.accent1],
     showTitle: true, title: "±30% 命中率（%）", titleFontSize: 13, titleColor: HEX.dk1,
@@ -387,8 +387,8 @@ sec("校准与输出");
   s.addText([
     { text: "Vampire Survivors", options: { fontSize: 18, bold: true, color: C.text1, breakLine: true } },
     { text: "评测 26.7 万条", options: { fontSize: 13, color: C.text2, breakLine: true } },
-    { text: "约 1116 万份", options: { fontSize: 34, bold: true, color: C.accent1, breakLine: true } },
-    { text: "80% 区间 662 万 ～ 1927 万", options: { fontSize: 15, color: C.text1, breakLine: true } },
+    { text: "约 1121 万份", options: { fontSize: 34, bold: true, color: C.accent1, breakLine: true } },
+    { text: "80% 区间 667 万 ～ 1936 万", options: { fontSize: 15, color: C.text1, breakLine: true } },
     { text: "标签：低（两路估计分歧大）", options: { fontSize: 15, color: C.text1 } },
   ], { x: 5.25, y: 1.35, w: 4.0, h: 3.0, margin: 0, valign: "top", paraSpaceAfter: 6, isTextBox: true });
   takeaway(s, "一次约 1 分钟；特征和训练时是同一段代码算的");
@@ -398,7 +398,7 @@ sec("校准与输出");
 {
   const s = pres.addSlide({ masterName: "DARK", sectionTitle: section });
   s.addText("总结", { placeholder: "title" });
-  const nums = [["26% → 46%", "树模型比共用一个 k 的命中率"], ["50.4%", "融合后 9623 款的命中率"], ["0.586", "近年 116 款校准后的误差"]];
+  const nums = [["26% → 46%", "树模型比共用一个 k 的命中率"], ["50.2%", "融合后 9623 款的命中率"], ["0.586", "近年 116 款校准后的误差"]];
   nums.forEach(([n, t], i) => {
     const x = 0.6 + i * 3.0;
     s.addText(n, { x, y: 2.9, w: 2.8, h: 0.8, fontSize: 30, bold: true, color: C.accent1, margin: 0, isTextBox: true });
