@@ -5,7 +5,8 @@
 //   node slides/video/render.mjs <构建目录> <首镜>-<末镜>                 录视频
 //   node slides/video/render.mjs <构建目录> <首镜>-<末镜> --at 3.2,10-12/8   只截这些时刻的图（秒；a-b/n 是 a 到 b 均匀取 n 张）
 //   node slides/video/render.mjs <构建目录> <首镜>-<末镜> --beats              打印每个动作的时刻
-//   node slides/video/render.mjs <构建目录> <首镜>-<末镜> --audio              不重录画面，用 shots/ 里已有的镜重新配声音
+//   node slides/video/render.mjs <构建目录> <首镜>-<末镜> --audio              不重录画面，用 shots/ 里已有的镜重新配声音（配音 + sfx.js 里的音效）
+//   加 --keep-sfx 留下单独的音效轨 film_a-b_sfx.wav，核对音效时刻用
 //   以上都可以加 --eval "<代码>"，打开页面后先执行，出样品切换画法用
 // 构建目录里要先有 data.json（export_data.py 导出）和 fonts/（NotoSansSC.ttf、Inter.ttf）。
 // 有 voice/（voice.py 合成）时按配音排时间、成片带声音；没有就按估算的语速排、成片无声。
@@ -192,6 +193,101 @@ async function buildAudio(shots, outPath) {
   await run("ffmpeg", [...args, "-filter_complex", filters.join(";"), "-map", "[out]", "-c:a", "pcm_s16le", outPath]);
 }
 
+// 读 48 kHz 单声道 16 位的 wav，返回 -1 到 1 的采样
+function readWav(path) {
+  const buf = readFileSync(path);
+  let p = 12;
+  let fmt = null;
+  while (p < buf.length) {
+    const id = buf.toString("ascii", p, p + 4);
+    const size = buf.readUInt32LE(p + 4);
+    if (id === "fmt ") fmt = { channels: buf.readUInt16LE(p + 10), rate: buf.readUInt32LE(p + 12), bits: buf.readUInt16LE(p + 22) };
+    if (id === "data") {
+      if (!fmt || fmt.channels !== 1 || fmt.rate !== 48000 || fmt.bits !== 16) throw new Error(`${path} 不是 48 kHz 单声道 16 位`);
+      const out = new Float32Array(size / 2);
+      for (let i = 0; i < out.length; i++) out[i] = buf.readInt16LE(p + 8 + i * 2) / 32768;
+      return out;
+    }
+    p += 8 + size + (size % 2);
+  }
+  throw new Error(`${path} 里没有音频数据`);
+}
+
+function writeWav(path, samples) {
+  const buf = Buffer.alloc(44 + samples.length * 2);
+  buf.write("RIFF", 0);
+  buf.writeUInt32LE(36 + samples.length * 2, 4);
+  buf.write("WAVEfmt ", 8);
+  buf.writeUInt32LE(16, 16);
+  buf.writeUInt16LE(1, 20);       // PCM
+  buf.writeUInt16LE(1, 22);       // 单声道
+  buf.writeUInt32LE(48000, 24);
+  buf.writeUInt32LE(96000, 28);   // 每秒字节数
+  buf.writeUInt16LE(2, 32);
+  buf.writeUInt16LE(16, 34);
+  buf.write("data", 36);
+  buf.writeUInt32LE(samples.length * 2, 40);
+  for (let i = 0; i < samples.length; i++) buf.writeInt16LE(Math.round(Math.max(-1, Math.min(1, samples[i])) * 32767), 44 + i * 2);
+  writeFileSync(path, buf);
+}
+
+// 音效轨：每个声音按 sfx.js 里定的峰值缩放，让它的落点对准画面动作，全部叠到一条和画面一样长的轨上。
+// offset 是这段成片在全片里的起点，cues 里的时刻是全片时刻
+function buildSfx(cues, sounds, offset, secs, outPath) {
+  const track = new Float32Array(Math.round(secs * 48000));
+  const loaded = {};
+  for (const { t, sound, dur } of cues) {
+    if (!(sound in sounds)) throw new Error(`sfx.js 里没有叫 ${sound} 的声音`);
+    const s = sounds[sound];
+    if (s === null) continue;  // 设成 null 的声音是这一版不用的
+    if (!loaded[sound]) {
+      const samples = readWav(join(HERE, "sfx", s.file));
+      const peak = samples.reduce((m, x) => Math.max(m, Math.abs(x)), 0);
+      const gain = Math.pow(10, s.db / 20) / peak;
+      loaded[sound] = samples.map((x) => x * gain);
+    }
+    const samples = loaded[sound];
+    const at = Math.round((t - offset - s.hit) * 48000);
+    // 只放文件的一段：lead 是落点前留几秒（上升音太长，只要最后一截，开头 0.25 秒淡入）；
+    // cut 是落点后留几秒、dur 是动作多长（截断处 0.12 秒淡出，免得戛然而止）
+    const from = s.lead ? Math.max(0, Math.round((s.hit - s.lead) * 48000)) : 0;
+    const after = dur ?? s.cut;
+    const end = after != null ? Math.min(samples.length, Math.round((s.hit + after) * 48000)) : samples.length;
+    const fadeIn = s.lead ? Math.round(0.25 * 48000) : 0;
+    const fadeOut = after != null ? Math.round(0.12 * 48000) : 0;
+    for (let i = Math.max(from, -at); i < end && at + i < track.length; i++) {
+      let g = 1;
+      if (fadeIn && i < from + fadeIn) g = (i - from) / fadeIn;
+      if (fadeOut && i > end - fadeOut) g = Math.min(g, (end - i) / fadeOut);
+      track[at + i] += samples[i] * g;
+    }
+  }
+  writeWav(outPath, track);
+}
+
+// 三条轨相加：配音（已统一响度）、音效、背景音乐。不再整体调响度，免得音效一响把配音压下去；
+// 最后用限幅器兜底，峰值不超过 -1.5 dB。
+// 背景音乐：从全片第 from 秒对应的位置接着放（不够长就循环），先统一到 music.lufs，
+// 有人声时再自动压低一截（侧链压缩：用配音的音量去控制音乐的音量），开头淡入、结尾淡出
+async function mixAll(voiceWav, sfxWav, music, from, secs, outPath) {
+  const args = ["-y", "-loglevel", "error", "-i", voiceWav, "-i", sfxWav];
+  const stereo = "aformat=sample_rates=48000:channel_layouts=stereo";
+  let graph = `[0:a]${stereo},asplit=2[voice][key];[1:a]${stereo}[sfx];`;
+  if (music) {
+    args.push("-stream_loop", "-1", "-i", join(HERE, music.file));
+    const fadeIn = from === 0 ? "afade=t=in:d=1.5," : "";
+    graph += `[2:a]${stereo},loudnorm=I=${music.lufs}:TP=-6,aresample=48000,` +
+      `atrim=start=${from.toFixed(3)}:duration=${secs.toFixed(3)},asetpts=PTS-STARTPTS,` +
+      `${fadeIn}afade=t=out:st=${Math.max(0, secs - 2.5).toFixed(3)}:d=2.5[bed];` +
+      `[bed][key]sidechaincompress=threshold=0.02:ratio=4:attack=30:release=500[music];` +
+      `[voice][sfx][music]amix=inputs=3:normalize=0:duration=first`;
+  } else {
+    graph += `[key]anullsink;[voice][sfx]amix=inputs=2:normalize=0:duration=first`;
+  }
+  graph += ",alimiter=limit=0.84:level=false[out]";
+  await run("ffmpeg", [...args, "-filter_complex", graph, "-map", "[out]", "-c:a", "pcm_s16le", outPath]);
+}
+
 // 画面原样拷过去，只加一条声音
 async function mux(video, audio, out) {
   await run("ffmpeg", ["-y", "-loglevel", "error", "-i", video, "-i", audio,
@@ -267,9 +363,22 @@ if (process.argv.includes("--beats")) {
   if (voiceDir) {
     const wav = join(buildDir, `${name}.wav`);
     await buildAudio(chosen, wav);
-    await mux(silent, wav, final);
-    unlinkSync(silent);
-    unlinkSync(wav);
+    // 音效：取落在这几镜里的，时刻是无穷大（这次没发生的动作）的跳过
+    const from = chosen[0].start;
+    const secs = chosen.reduce((sum, s) => sum + s.secs, 0);
+    const { cues, sounds, music } = await page.evaluate(() => ({ cues: soundCues(), sounds: SOUNDS, music: MUSIC }));
+    // 写错了动作名会得到 undefined/NaN，直接报错；Infinity 是这次没发生的动作，跳过
+    const bad = cues.filter((c) => typeof c.t !== "number" || Number.isNaN(c.t));
+    if (bad.length) throw new Error(`sfx.js 里有 ${bad.length} 个音效的时刻不是数：${JSON.stringify(bad)}`);
+    const inRange = cues.filter((c) => Number.isFinite(c.t) && c.t >= from && c.t < from + secs);
+    console.log(`音效 ${inRange.length} 个，背景音乐 ${music ? music.file : "无"}`);
+    const sfx = join(buildDir, `${name}_sfx.wav`);
+    const mixed = join(buildDir, `${name}_mix.wav`);
+    buildSfx(inRange, sounds, from, secs, sfx);
+    await mixAll(wav, sfx, music, from, secs, mixed);
+    await mux(silent, mixed, final);
+    for (const f of [silent, wav, mixed]) unlinkSync(f);
+    if (!process.argv.includes("--keep-sfx")) unlinkSync(sfx);
   }
   writeSrt(chosen, join(buildDir, `${name}.srt`), chosen[0].start);
   console.log("成片：", join(buildDir, `${name}.mp4`));
