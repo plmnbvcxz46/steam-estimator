@@ -4,6 +4,8 @@
 
 设计见 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)，公式推导见 [docs/DERIVATIONS.md](docs/DERIVATIONS.md)，决策记录见 [docs/devlog.md](docs/devlog.md)，讲解稿见 [docs/PRESENTATION.md](docs/PRESENTATION.md)。
 
+> 早期探索版本：[rex-archive/steamsales-guess](https://github.com/rex-archive/steamsales-guess)（已归档，私有）。
+
 ## 安装与运行
 
 ```bash
